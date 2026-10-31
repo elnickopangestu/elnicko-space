@@ -133,7 +133,7 @@ const server = http.createServer(async (req, res) => {
       const apps = await pm2List();
       if (!apps.some(a => a.name === name)) return send(res, 404, { error: 'App tidak ditemukan' });
 
-      await run('pm2', [action, name]);
+      await run('pm2', [action === 'start' ? 'restart' : action, name]);
       return send(res, 200, { success: true, name, action, apps: await pm2List() });
     }
 

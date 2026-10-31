@@ -314,7 +314,8 @@ async function controlSite(domainRaw, action) {
   const site = getSite(domainRaw);
   if (site.framework === 'static') throw new HttpError(400, 'Website static tidak punya proses');
   if (!['start', 'stop', 'restart'].includes(action)) throw new HttpError(400, 'Aksi tidak valid');
-  await run('pm2', [action, pm2Name(site.domain)]);
+  // 'pm2 start <nama>' gagal untuk nama bertitik; restart juga menghidupkan proses yang berhenti
+  await run('pm2', [action === 'start' ? 'restart' : action, pm2Name(site.domain)]);
   return { success: true };
 }
 
