@@ -102,6 +102,12 @@ const server = http.createServer(async (req, res) => {
       return send(res, 200, await status());
     }
 
+    // GET /overview (status + apps dalam satu request)
+    if (req.method === 'GET' && parts.length === 1 && parts[0] === 'overview') {
+      const [s, apps] = await Promise.all([status(), pm2List()]);
+      return send(res, 200, { status: s, apps });
+    }
+
     // GET /apps
     if (req.method === 'GET' && parts.length === 1 && parts[0] === 'apps') {
       return send(res, 200, { apps: await pm2List() });

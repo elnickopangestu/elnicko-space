@@ -26,18 +26,23 @@ export function useVps(intervalMs = 10000) {
 
   const refresh = useCallback(async () => {
     try {
-      const [s, a] = await Promise.all([call('status'), call('apps')]);
-      if (s.mock || a.mock) { setMock(true); setError(''); return; }
-      setMock(false); setStatus(s); setApps(a.apps); setError('');
+      const d = await call('overview');
+      if (d.mock) { setMock(true); setError(''); return; }
+      setMock(false); setStatus(d.status); setApps(d.apps); setError('');
     } catch (e) {
       setError(e.message);
     }
   }, []);
 
   useEffect(() => {
-    refresh();
-    const t = setInterval(refresh, intervalMs);
-    return () => clearInterval(t);
+    // Polling berhenti saat tab tidak terlihat, supaya hemat invocation Vercel
+    let t = null;
+    const start = () => { if (!t) { refresh(); t = setInterval(refresh, intervalMs); } };
+    const stop = () => { clearInterval(t); t = null; };
+    const onVis = () => (document.hidden ? stop() : start());
+    onVis();
+    document.addEventListener('visibilitychange', onVis);
+    return () => { stop(); document.removeEventListener('visibilitychange', onVis); };
   }, [refresh, intervalMs]);
 
   return { status, apps, error, mock, refresh, setApps };

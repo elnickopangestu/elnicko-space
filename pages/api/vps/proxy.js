@@ -1,5 +1,6 @@
 // Hanya rute agent yang diizinkan, supaya proxy tidak bisa dipakai untuk path sembarang
 const ALLOWED = [
+  { method: 'GET', re: /^overview$/ },
   { method: 'GET', re: /^status$/ },
   { method: 'GET', re: /^apps$/ },
   { method: 'POST', re: /^apps\/[A-Za-z0-9._-]{1,64}\/(restart|stop|start)$/ },
