@@ -151,7 +151,7 @@ export default function ElnickoSpace() {
   const sites = siteList.sites || [];
   const filtered = sites.filter(s => s.domain.includes(filter.toLowerCase()));
   const running = sites.filter(s => s.framework === 'static' ? s.state === 'ready' : s.process?.status === 'online').length;
-  const inputCls = 'w-full mt-1 bg-black/50 border border-white/10 rounded-xl px-4 py-3 text-[14px] outline-none focus:border-violet-500/50';
+  const inputCls = 'w-full mt-1 bg-black/50 border border-white/10 rounded-xl px-4 py-3 text-[16px] sm:text-[14px] outline-none focus:border-violet-500/50';
 
   return (
     <div className="min-h-screen bg-[#06080f] text-white" style={{fontFamily: 'ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif'}}>
@@ -167,27 +167,27 @@ export default function ElnickoSpace() {
       <div className="fixed inset-0 starfield opacity-40 pointer-events-none" />
 
       <header className="sticky top-0 z-40 border-b border-white/10 glass">
-        <div className="max-w-[1600px] mx-auto px-6 h-[64px] flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-violet-600 to-indigo-600 flex items-center justify-center glow">◐</div>
-            <div>
-              <h1 className="font-bold tracking-widest text-[14px]">ELNICKO SPACE</h1>
-              <p className="mono text-[11px] text-white/50">VPS MANAGER • {vps.status?.hostname || 'VPS'}</p>
+        <div className="max-w-[1600px] mx-auto px-4 sm:px-6 h-[60px] sm:h-[64px] flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3 sm:gap-4 min-w-0">
+            <div className="w-9 h-9 shrink-0 rounded-xl bg-gradient-to-br from-violet-600 to-indigo-600 flex items-center justify-center glow">◐</div>
+            <div className="min-w-0">
+              <h1 className="font-bold tracking-widest text-[13px] sm:text-[14px] flex items-center gap-2 truncate">ELNICKO SPACE <span className={`md:hidden w-2 h-2 rounded-full shrink-0 ${vps.status ? 'bg-emerald-400 pulse-dot' : 'bg-red-400'}`} /></h1>
+              <p className="mono text-[11px] text-white/50 truncate hidden sm:block">VPS MANAGER • {vps.status?.hostname || 'VPS'}</p>
             </div>
             <div className="hidden md:flex items-center gap-2 ml-6 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20">
               <span className={`w-2 h-2 rounded-full ${vps.status ? 'bg-emerald-400 pulse-dot' : 'bg-red-400'}`} />
               <span className="mono text-[11px] text-emerald-300">{vps.status ? `ONLINE • ${vps.status.cpus} vCPU • ${gb(vps.status.memory.total)}` : vps.error ? 'OFFLINE' : 'CONNECTING'}</span>
             </div>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 sm:gap-3 shrink-0">
             <input value={filter} onChange={e=>setFilter(e.target.value)} placeholder="Cari domain..." className="hidden md:block bg-white/5 border border-white/10 rounded-full px-4 py-2 text-[13px] w-56 outline-none focus:border-violet-500/50" />
-            <button onClick={()=>{ setUpdateSite(null); setShowModal(true); }} className="px-4 py-2 rounded-full bg-white text-black text-[13px] font-bold hover:bg-white/90 transition">+ New Website</button>
-            <button onClick={async()=>{await fetch('/api/auth/logout',{method:'POST'});window.location.href='/login'}} className="px-4 py-2 rounded-full border border-white/10 text-[13px] text-white/70 hover:bg-white/5 transition">Logout</button>
+            <button onClick={()=>{ setUpdateSite(null); setShowModal(true); }} className="px-4 min-h-[40px] rounded-full bg-white text-black text-[13px] font-bold hover:bg-white/90 transition"><span className="sm:hidden">+ Baru</span><span className="hidden sm:inline">+ New Website</span></button>
+            <button onClick={async()=>{await fetch('/api/auth/logout',{method:'POST'});window.location.href='/login'}} className="px-3 sm:px-4 min-h-[40px] rounded-full border border-white/10 text-[13px] text-white/70 hover:bg-white/5 transition"><span className="sm:hidden">Keluar</span><span className="hidden sm:inline">Logout</span></button>
           </div>
         </div>
       </header>
 
-      <div className="max-w-[1600px] mx-auto px-6 py-6 grid grid-cols-12 gap-6 relative">
+      <div className="max-w-[1600px] mx-auto px-4 sm:px-6 py-4 sm:py-6 pb-24 lg:pb-6 grid grid-cols-12 gap-4 sm:gap-6 relative">
         <div className="col-span-12 grid grid-cols-2 md:grid-cols-4 gap-4">
           {[
             { label: 'Total Websites', value: sites.length, sub: `${running} running` },
@@ -253,16 +253,16 @@ export default function ElnickoSpace() {
                   <p className="mono text-[11px] text-white/30 mt-3 truncate">{site.external ? `app dari VPS • pm2: ${site.pm2}` : site.repo ? `${site.repo.replace('https://github.com/','')} • ${site.branch}` : 'upload folder'}</p>
                   <div className="flex flex-wrap gap-2 mt-4">
                     {!site.external && (
-                      <button onClick={()=>handleDeploy(site)} disabled={working || site.state === 'failed'} className={`flex-1 py-2 rounded-full text-[12px] font-bold transition ${working ? 'bg-white/10' : 'bg-white text-black hover:bg-white/90'} disabled:opacity-50`}>
+                      <button onClick={()=>handleDeploy(site)} disabled={working || site.state === 'failed'} className={`flex-1 min-w-[96px] py-2.5 sm:py-2 rounded-full text-[12px] font-bold transition ${working ? 'bg-white/10' : 'bg-white text-black hover:bg-white/90'} disabled:opacity-50`}>
                         {working ? 'Bekerja...' : 'Deploy'}
                       </button>
                     )}
-                    {online && site.url && <button onClick={()=>openApp(site.domain, site.url)} className="px-3 py-2 rounded-full bg-violet-500/20 text-violet-200 hover:bg-violet-500/30 text-[12px] font-bold">Buka ↗</button>}
-                    {!isStatic && <button disabled={working} onClick={()=>handleControl(site, online ? 'stop' : 'start')} className="px-3 py-2 rounded-full bg-white/5 hover:bg-white/10 text-[12px] disabled:opacity-50">{online ? 'Stop' : 'Start'}</button>}
-                    {site.source === 'upload' && <button disabled={working} onClick={()=>{ setUpdateSite(site); setMode('upload'); setShowModal(true); }} className="px-3 py-2 rounded-full bg-white/5 hover:bg-white/10 text-[12px] disabled:opacity-50">Upload ulang</button>}
-                    {!site.ssl && site.state === 'ready' && <button disabled={working} onClick={()=>handleSsl(site)} className="px-3 py-2 rounded-full bg-white/5 hover:bg-white/10 text-[12px] disabled:opacity-50">SSL</button>}
-                    <button onClick={()=>handleLogs(site)} className="px-3 py-2 rounded-full bg-white/5 hover:bg-white/10 text-[12px]">Logs</button>
-                    <button disabled={working} onClick={()=>handleDelete(site)} className="px-3 py-2 rounded-full bg-red-500/10 text-red-300 hover:bg-red-500/20 text-[12px] disabled:opacity-50">{site.external ? 'Lepas' : 'Hapus'}</button>
+                    {online && site.url && <button onClick={()=>openApp(site.domain, site.url)} className="px-4 py-2.5 sm:px-3 sm:py-2 rounded-full bg-violet-500/20 text-violet-200 hover:bg-violet-500/30 text-[12px] font-bold">Buka ↗</button>}
+                    {!isStatic && <button disabled={working} onClick={()=>handleControl(site, online ? 'stop' : 'start')} className="px-4 py-2.5 sm:px-3 sm:py-2 rounded-full bg-white/5 hover:bg-white/10 text-[12px] disabled:opacity-50">{online ? 'Stop' : 'Start'}</button>}
+                    {site.source === 'upload' && <button disabled={working} onClick={()=>{ setUpdateSite(site); setMode('upload'); setShowModal(true); }} className="px-4 py-2.5 sm:px-3 sm:py-2 rounded-full bg-white/5 hover:bg-white/10 text-[12px] disabled:opacity-50">Upload ulang</button>}
+                    {!site.ssl && site.state === 'ready' && <button disabled={working} onClick={()=>handleSsl(site)} className="px-4 py-2.5 sm:px-3 sm:py-2 rounded-full bg-white/5 hover:bg-white/10 text-[12px] disabled:opacity-50">SSL</button>}
+                    <button onClick={()=>handleLogs(site)} className="px-4 py-2.5 sm:px-3 sm:py-2 rounded-full bg-white/5 hover:bg-white/10 text-[12px]">Logs</button>
+                    <button disabled={working} onClick={()=>handleDelete(site)} className="px-4 py-2.5 sm:px-3 sm:py-2 rounded-full bg-red-500/10 text-red-300 hover:bg-red-500/20 text-[12px] disabled:opacity-50">{site.external ? 'Lepas' : 'Hapus'}</button>
                   </div>
                 </div>
               );
@@ -287,8 +287,8 @@ export default function ElnickoSpace() {
       </div>
 
       {showModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-black/70 backdrop-blur-sm">
-          <div className="glass rounded-2xl w-full max-w-md p-6 glow max-h-full overflow-auto">
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-6 bg-black/70 backdrop-blur-sm">
+          <div className="glass rounded-t-2xl sm:rounded-2xl w-full sm:max-w-md p-5 sm:p-6 glow max-h-[92vh] overflow-auto pb-[max(1.25rem,env(safe-area-inset-bottom))]">
             <h3 className="font-bold text-lg mb-4">Add New Website</h3>
             <div className="flex gap-2 mb-4">
               {[['github', 'Dari GitHub'], ['upload', 'Upload folder'], ['import', 'Import VPS']].map(([k, label]) => (
@@ -341,7 +341,14 @@ export default function ElnickoSpace() {
         </div>
       )}
 
-      {toast && <div className="fixed bottom-6 right-6 glass rounded-full px-5 py-3 text-[13px] font-bold glow">{toast}</div>}
+      {jobId && (
+        <button onClick={()=>document.getElementById('logs')?.scrollIntoView({ behavior: 'smooth' })} className="lg:hidden fixed bottom-0 inset-x-0 z-40 glass border-t border-white/10 px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] text-left flex items-center gap-3">
+          <span className="w-2 h-2 rounded-full bg-violet-400 pulse-dot shrink-0" />
+          <span className="mono text-[11px] text-white/70 truncate">{logs[logs.length - 1]}</span>
+          <span className="text-[11px] text-violet-300 shrink-0 ml-auto">Lihat log ↓</span>
+        </button>
+      )}
+      {toast && <div className="fixed bottom-20 sm:bottom-6 left-4 right-4 sm:left-auto sm:right-6 text-center glass rounded-full px-5 py-3 text-[13px] font-bold glow z-50">{toast}</div>}
     </div>
   );
 }

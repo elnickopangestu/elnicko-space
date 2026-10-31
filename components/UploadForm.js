@@ -10,11 +10,21 @@ const MAX_ZIP = 150 * 1024 * 1024;
 const mbStr = (b) => `${(b / 1024 / 1024).toFixed(1)} MB`;
 const slug = (s) => s.toLowerCase().replace(/[^a-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 80) || 'my-app';
 
-const inputCls = 'w-full mt-1 bg-black/50 border border-white/10 rounded-xl px-4 py-3 text-[14px] outline-none focus:border-violet-500/50';
+// 'ok' | 'dirs' | 'logs' | 'env'
+function classify(rel, withEnv) {
+  const parts = rel.split('/');
+  if (parts.slice(0, -1).some(p => SKIP_DIRS.has(p))) return 'dirs';
+  if (SKIP_FILES.test(rel)) return 'logs';
+  if (ENV_FILE.test(rel) && !ENV_SAFE.test(rel) && !withEnv) return 'env';
+  return 'ok';
+}
 
-export default function UploadForm({ updateSite, onJob, onClose, notify }) {
-  const [files, setFiles] = useState([]);       // [{ file, rel }]
-  const [folder, setFolder] = useState('');
+const inputCls = 'w-full mt-1 bg-black/50 border border-white/10 rounded-xl px-4 py-3 text-[16px] sm:text-[14px] outline-none focus:border-violet-500/50';
+const fileCls = 'w-full mt-1 text-[13px] text-white/70 file:mr-3 file:rounded-full file:border-0 file:bg-white file:px-4 file:py-2.5 file:text-[13px] file:font-bold file:text-black';
+
+export default function UploadForm({ updateSite, onJob, onClose }) {
+  const [files, setFiles] = useState([]);       // [{ file: File|Blob, rel }]
+  const [source, setSource] = useState('');     // nama folder / zip
   const [skipped, setSkipped] = useState({ dirs: 0, logs: 0, env: 0 });
   const [hint, setHint] = useState('');
   const [domain, setDomain] = useState(updateSite?.domain || '');
@@ -29,40 +39,14 @@ export default function UploadForm({ updateSite, onJob, onClose, notify }) {
   const [busy, setBusy] = useState('');
   const [progress, setProgress] = useState(0);
   const [err, setErr] = useState('');
-  const inputRef = useRef(null);
-  const all = useRef([]);
+  const dirInput = useRef(null);
+  const src = useRef(null); // { kind: 'dir', list } | { kind: 'zip', items: [{ rel, entry }] }
+  const blobCache = useRef(new Map());
 
   useEffect(() => { call('github').then(setGh).catch(() => setGh({ configured: false })); }, []);
-  useEffect(() => { if (inputRef.current) inputRef.current.setAttribute('webkitdirectory', ''); }, []);
+  useEffect(() => { if (dirInput.current) dirInput.current.setAttribute('webkitdirectory', ''); }, []);
 
-  const filter = (list, withEnv) => {
-    const out = [];
-    const sk = { dirs: 0, logs: 0, env: 0 };
-    for (const f of list) {
-      const parts = (f.webkitRelativePath || f.name).split('/');
-      const rel = parts.slice(1).join('/');
-      if (!rel) continue;
-      if (parts.slice(1, -1).some(p => SKIP_DIRS.has(p))) { sk.dirs++; continue; }
-      if (SKIP_FILES.test(rel)) { sk.logs++; continue; }
-      if (ENV_FILE.test(rel) && !ENV_SAFE.test(rel) && !withEnv) { sk.env++; continue; }
-      out.push({ file: f, rel });
-    }
-    return { out, sk };
-  };
-
-  const pick = async (e) => {
-    const list = Array.from(e.target.files || []);
-    all.current = list;
-    if (!list.length) return;
-    const name = (list[0].webkitRelativePath || '').split('/')[0] || 'folder';
-    setFolder(name);
-    if (!repoName) setRepoName(slug(name));
-    apply(list, includeEnv);
-  };
-
-  const apply = async (list, withEnv) => {
-    const { out, sk } = filter(list, withEnv);
-    setFiles(out); setSkipped(sk);
+  const detect = async (out) => {
     const pkg = out.find(x => x.rel === 'package.json');
     if (pkg) {
       try {
@@ -74,7 +58,58 @@ export default function UploadForm({ updateSite, onJob, onClose, notify }) {
     else setHint('');
   };
 
-  useEffect(() => { if (all.current.length) apply(all.current, includeEnv); /* eslint-disable-next-line */ }, [includeEnv]);
+  const apply = async (withEnv) => {
+    const s = src.current;
+    if (!s) return;
+    const sk = { dirs: 0, logs: 0, env: 0 };
+    const out = [];
+    const items = s.kind === 'dir' ? s.items : s.items;
+    for (const it of items) {
+      const c = classify(it.rel, withEnv);
+      if (c !== 'ok') { sk[c]++; continue; }
+      if (it.file) { out.push({ file: it.file, rel: it.rel }); continue; }
+      let blob = blobCache.current.get(it.rel);
+      if (!blob) { blob = await it.entry.async('blob'); blobCache.current.set(it.rel, blob); }
+      out.push({ file: blob, rel: it.rel });
+    }
+    setFiles(out); setSkipped(sk);
+    await detect(out);
+  };
+
+  useEffect(() => { if (src.current) apply(includeEnv); /* eslint-disable-next-line */ }, [includeEnv]);
+
+  const pickDir = async (e) => {
+    const list = Array.from(e.target.files || []);
+    if (!list.length) return;
+    setErr('');
+    const name = (list[0].webkitRelativePath || '').split('/')[0] || 'folder';
+    src.current = { kind: 'dir', items: list.map(f => ({ rel: (f.webkitRelativePath || f.name).split('/').slice(1).join('/'), file: f })).filter(x => x.rel) };
+    setSource(name);
+    if (!repoName) setRepoName(slug(name));
+    await apply(includeEnv);
+  };
+
+  const pickZip = async (e) => {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    setErr(''); setBusy('Membaca zip...');
+    try {
+      const JSZip = (await import('jszip')).default;
+      const z = await JSZip.loadAsync(f);
+      const entries = Object.values(z.files).filter(x => !x.dir && !x.name.startsWith('__MACOSX/'));
+      if (!entries.length) throw new Error('Zip kosong');
+      // Zip dari "Compress folder" biasanya punya satu folder induk: buang
+      const roots = new Set(entries.map(x => x.name.split('/')[0]));
+      const strip = roots.size === 1 && entries.every(x => x.name.includes('/'));
+      blobCache.current = new Map();
+      src.current = { kind: 'zip', items: entries.map(x => ({ rel: strip ? x.name.split('/').slice(1).join('/') : x.name, entry: x })) };
+      const name = f.name.replace(/\.zip$/i, '');
+      setSource(name);
+      if (!repoName) setRepoName(slug(name));
+      await apply(includeEnv);
+    } catch (e2) { setErr(`Zip tidak bisa dibaca: ${e2.message}`); }
+    setBusy('');
+  };
 
   const total = files.reduce((a, x) => a + x.file.size, 0);
   const ghReady = gh?.configured;
@@ -127,38 +162,42 @@ export default function UploadForm({ updateSite, onJob, onClose, notify }) {
     <div>
       <div className="space-y-4">
         <div>
-          <label className="mono text-[11px] text-white/50">Folder proyek</label>
-          <input ref={inputRef} type="file" multiple onChange={pick} className="w-full mt-1 text-[12px] text-white/70 file:mr-3 file:rounded-full file:border-0 file:bg-white file:px-4 file:py-2 file:text-[12px] file:font-bold file:text-black" />
-          {files.length > 0 && (
-            <p className="mono text-[11px] text-white/50 mt-2">
-              {folder}: {files.length} file, {mbStr(total)} {hint && <>• terdeteksi <span className="text-white/80">{hint}</span></>}
-              <br />dilewati: {skipped.dirs} file di node_modules/.git/.next dll, {skipped.logs} log{skipped.env ? `, ${skipped.env} file .env (rahasia)` : ''}
-            </p>
-          )}
+          <label className="mono text-[11px] text-white/50">File ZIP proyek (disarankan di HP)</label>
+          <input type="file" accept=".zip,application/zip,application/x-zip-compressed" onChange={pickZip} className={fileCls} />
         </div>
+        <div className="hidden sm:block">
+          <label className="mono text-[11px] text-white/50">atau pilih folder (komputer)</label>
+          <input ref={dirInput} type="file" multiple onChange={pickDir} className={fileCls} />
+        </div>
+        {files.length > 0 && (
+          <p className="mono text-[11px] text-white/50">
+            {source}: {files.length} file, {mbStr(total)} {hint && <>• terdeteksi <span className="text-white/80">{hint}</span></>}
+            <br />dilewati: {skipped.dirs} file di node_modules/.git/.next dll, {skipped.logs} log{skipped.env ? `, ${skipped.env} file .env (rahasia)` : ''}
+          </p>
+        )}
 
         <div className="grid grid-cols-2 gap-3">
-          <label className="flex items-center gap-2 text-[13px] cursor-pointer"><input type="checkbox" checked={deploy} onChange={e => setDeploy(e.target.checked)} /> Deploy ke VPS</label>
-          <label className={`flex items-center gap-2 text-[13px] ${ghReady ? 'cursor-pointer' : 'opacity-50'}`}><input type="checkbox" disabled={!ghReady} checked={push} onChange={e => setPush(e.target.checked)} /> Push ke GitHub</label>
+          <label className="flex items-center gap-2 text-[14px] min-h-[40px] cursor-pointer"><input type="checkbox" className="w-4 h-4" checked={deploy} onChange={e => setDeploy(e.target.checked)} /> Deploy ke VPS</label>
+          <label className={`flex items-center gap-2 text-[14px] min-h-[40px] ${ghReady ? 'cursor-pointer' : 'opacity-50'}`}><input type="checkbox" className="w-4 h-4" disabled={!ghReady} checked={push} onChange={e => setPush(e.target.checked)} /> Push ke GitHub</label>
         </div>
 
         {deploy && (
           <>
-            <div><label className="mono text-[11px] text-white/50">Domain</label><input value={domain} onChange={e => setDomain(e.target.value)} disabled={!!updateSite} placeholder="baru.com" className={inputCls + ' disabled:opacity-60'} /></div>
+            <div><label className="mono text-[11px] text-white/50">Domain</label><input value={domain} onChange={e => setDomain(e.target.value)} disabled={!!updateSite} placeholder="baru.com" inputMode="url" autoCapitalize="none" className={inputCls + ' disabled:opacity-60'} /></div>
             <div className="grid grid-cols-2 gap-3">
               <div><label className="mono text-[11px] text-white/50">Framework</label>
                 <select value={framework} onChange={e => setFramework(e.target.value)} className={inputCls}>
                   <option value="auto">Otomatis{hint ? ` (${hint})` : ''}</option><option value="nextjs">Next.js</option><option value="node">Node.js (npm start)</option><option value="static">Static (HTML)</option>
                 </select></div>
-              <div><label className="mono text-[11px] text-white/50">Port (opsional)</label><input type="number" value={port} onChange={e => setPort(e.target.value)} disabled={!!updateSite} placeholder="otomatis" className={inputCls + ' disabled:opacity-40'} /></div>
+              <div><label className="mono text-[11px] text-white/50">Port (opsional)</label><input type="number" inputMode="numeric" value={port} onChange={e => setPort(e.target.value)} disabled={!!updateSite} placeholder="otomatis" className={inputCls + ' disabled:opacity-40'} /></div>
             </div>
           </>
         )}
 
         {push && (
           <div className="grid grid-cols-2 gap-3">
-            <div><label className="mono text-[11px] text-white/50">Nama repo GitHub</label><input value={repoName} onChange={e => setRepoName(e.target.value)} className={inputCls} /></div>
-            <label className="flex items-end gap-2 text-[13px] pb-3 cursor-pointer"><input type="checkbox" checked={isPrivate} onChange={e => setIsPrivate(e.target.checked)} /> Private</label>
+            <div><label className="mono text-[11px] text-white/50">Nama repo GitHub</label><input value={repoName} onChange={e => setRepoName(e.target.value)} autoCapitalize="none" className={inputCls} /></div>
+            <label className="flex items-end gap-2 text-[14px] pb-3 cursor-pointer"><input type="checkbox" className="w-4 h-4" checked={isPrivate} onChange={e => setIsPrivate(e.target.checked)} /> Private</label>
           </div>
         )}
 
@@ -172,7 +211,7 @@ export default function UploadForm({ updateSite, onJob, onClose, notify }) {
         {gh?.configured && <p className="text-[11px] text-white/40">GitHub terhubung sebagai <span className="mono text-white/70">{gh.login}</span>.</p>}
 
         <label className="flex items-start gap-2 text-[12px] text-white/60 cursor-pointer">
-          <input type="checkbox" checked={includeEnv} onChange={e => setIncludeEnv(e.target.checked)} className="mt-1" />
+          <input type="checkbox" className="mt-1 w-4 h-4" checked={includeEnv} onChange={e => setIncludeEnv(e.target.checked)} />
           <span>Sertakan file <span className="mono">.env</span> ke VPS (untuk dipakai aplikasi). Tidak pernah ikut ke GitHub.</span>
         </label>
       </div>
@@ -180,13 +219,13 @@ export default function UploadForm({ updateSite, onJob, onClose, notify }) {
       {err && <p className="text-[12px] text-red-400 mt-4">{err}</p>}
       {busy && (
         <div className="mt-4">
-          <p className="text-[12px] text-white/60">{busy} {progress}%</p>
+          <p className="text-[12px] text-white/60">{busy} {progress > 0 ? `${progress}%` : ''}</p>
           <div className="h-1 bg-white/10 rounded-full mt-2 overflow-hidden"><div className="h-full bg-gradient-to-r from-violet-500 to-indigo-500 transition-all" style={{ width: `${progress}%` }} /></div>
         </div>
       )}
       <div className="flex gap-3 mt-6">
-        <button onClick={onClose} disabled={!!busy} className="flex-1 py-3 rounded-full bg-white/10 text-[13px] disabled:opacity-50">Batal</button>
-        <button onClick={submit} disabled={!canSubmit} className="flex-1 py-3 rounded-full bg-white text-black font-bold text-[13px] disabled:opacity-50">{busy || (updateSite ? 'Upload ulang' : deploy && push ? 'Upload, push & deploy' : push ? 'Push ke GitHub' : 'Upload & deploy')}</button>
+        <button onClick={onClose} disabled={!!busy} className="flex-1 min-h-[44px] rounded-full bg-white/10 text-[13px] disabled:opacity-50">Batal</button>
+        <button onClick={submit} disabled={!canSubmit} className="flex-[2] min-h-[44px] rounded-full bg-white text-black font-bold text-[13px] disabled:opacity-50">{busy || (updateSite ? 'Upload ulang' : deploy && push ? 'Upload, push & deploy' : push ? 'Push ke GitHub' : 'Upload & deploy')}</button>
       </div>
     </div>
   );

@@ -26,8 +26,8 @@ export default function AppViewer({ name, url, onClose }) {
           <span className="mono text-[11px] text-white/40 truncate hidden sm:block">{url}</span>
         </div>
         <div className="flex items-center gap-2 shrink-0">
-          <a href={url} target="_blank" rel="noopener noreferrer" className="px-3 py-1.5 rounded-full bg-white/10 hover:bg-white/15 text-[12px]">Tab baru ↗</a>
-          <button onClick={onClose} className="px-3 py-1.5 rounded-full bg-white text-black text-[12px] font-bold">Tutup</button>
+          <a href={url} target="_blank" rel="noopener noreferrer" className="px-4 py-2 rounded-full bg-white/10 hover:bg-white/15 text-[12px]">Tab baru ↗</a>
+          <button onClick={onClose} className="px-4 py-2 rounded-full bg-white text-black text-[12px] font-bold">Tutup</button>
         </div>
       </div>
       <div className="relative flex-1">

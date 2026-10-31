@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { call, mb, fmtUptime } from './LiveVps';
 
-const btn = 'px-4 py-2 rounded-full text-[12px] font-bold disabled:opacity-40 transition';
+const btn = 'px-4 py-2.5 sm:py-2 rounded-full text-[12px] font-bold disabled:opacity-40 transition';
 
 export default function AppDetail({ name, onClose, onLog, onJob, onChanged, onOpen }) {
   const [info, setInfo] = useState(null);
@@ -62,14 +62,14 @@ export default function AppDetail({ name, onClose, onLog, onJob, onChanged, onOp
   const upToDate = g && g.behind === 0 && !g.fetchError;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm" onClick={onClose}>
-      <div className="glass rounded-2xl w-full max-w-2xl p-6 glow max-h-full overflow-auto" onClick={e => e.stopPropagation()}>
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-4 bg-black/70 backdrop-blur-sm" onClick={onClose}>
+      <div className="glass rounded-t-2xl sm:rounded-2xl w-full sm:max-w-2xl p-5 sm:p-6 glow max-h-[92vh] overflow-auto pb-[max(1.25rem,env(safe-area-inset-bottom))]" onClick={e => e.stopPropagation()}>
         <div className="flex items-start justify-between mb-4">
           <div className="min-w-0">
             <h3 className="font-bold text-lg truncate">{name}</h3>
             <p className="mono text-[11px] text-white/40 truncate">{info?.cwd || '...'}</p>
           </div>
-          <button onClick={onClose} className="text-white/50 hover:text-white text-xl leading-none px-2">×</button>
+          <button onClick={onClose} className="text-white/50 hover:text-white text-3xl leading-none w-10 h-10 -mr-2 -mt-2 flex items-center justify-center">×</button>
         </div>
 
         {err && <p className="text-[12px] text-red-400 mb-3">{err}</p>}
@@ -96,7 +96,7 @@ export default function AppDetail({ name, onClose, onLog, onJob, onChanged, onOp
               {info.urls?.length ? info.urls.map(u => (
                 <div key={u.url} className="flex items-center justify-between gap-2 py-1">
                   <span className="mono text-white/80 truncate">{u.url}{u.auth && <span className="ml-2 text-emerald-300">🔐 login</span>}{!u.secure && <span className="ml-2 text-amber-300">http</span>}</span>
-                  <button onClick={() => { onOpen?.(name, u.url); onClose(); }} className="px-3 py-1 rounded-full bg-violet-500/20 text-violet-200 hover:bg-violet-500/30 font-bold shrink-0">Buka ↗</button>
+                  <button onClick={() => { onOpen?.(name, u.url); onClose(); }} className="px-4 py-2 rounded-full bg-violet-500/20 text-violet-200 hover:bg-violet-500/30 font-bold shrink-0">Buka ↗</button>
                 </div>
               )) : (
                 <p className="text-white/40">{info.ports?.length ? `Aplikasi listen di port ${info.ports.join(', ')} tapi belum punya alamat publik. Pasang domain lewat + New Website → Import dari VPS.` : 'Proses ini tidak membuka port web.'}</p>

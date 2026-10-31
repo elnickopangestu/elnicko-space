@@ -32,7 +32,7 @@ export default function Login() {
           <h1 className="font-bold tracking-widest text-[14px]">ELNICKO SPACE</h1>
         </div>
         <label className="block text-[12px] text-white/60 mb-2">Password</label>
-        <input type="password" autoFocus value={password} onChange={e => setPassword(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-[14px] outline-none focus:border-violet-500/50" />
+        <input type="password" autoFocus value={password} onChange={e => setPassword(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-3 text-[16px] sm:text-[14px] outline-none focus:border-violet-500/50" />
         {error && <p className="text-[12px] text-red-400 mt-3">{error}</p>}
         <button disabled={loading || !password} className="mt-5 w-full px-4 py-2 rounded-full bg-white text-black text-[13px] font-bold disabled:opacity-50">
           {loading ? 'Masuk...' : 'Masuk'}
