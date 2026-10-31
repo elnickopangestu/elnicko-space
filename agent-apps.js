@@ -113,8 +113,8 @@ function updateApp(name) {
 
       if (name === SELF) {
         // Agent memperbarui dirinya: cek sintaks dulu, restart ditunda supaya job sempat selesai
-        for (const f of ['agent.js', 'agent-sites.js', 'agent-apps.js']) {
-          if (fs.existsSync(path.join(cwd, f))) await run(process.execPath, ['--check', path.join(cwd, f)], { job });
+        for (const f of fs.readdirSync(cwd).filter(n => /^agent(-[a-z]+)?\.js$/.test(n))) {
+          await run(process.execPath, ['--check', path.join(cwd, f)], { job });
         }
         append(job, '\n✅ Kode agent diperbarui. Agent restart sendiri dalam beberapa detik...\n');
         setTimeout(() => {
