@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useVps, useSites, VpsApps, gb, call } from '../components/LiveVps';
+import AppDetail from '../components/AppDetail';
 
 const FRAMEWORKS = [
   { value: 'nextjs', label: 'Next.js' },
@@ -27,6 +28,7 @@ export default function ElnickoSpace() {
   const [filter, setFilter] = useState('');
   const [creating, setCreating] = useState(false);
   const [newSite, setNewSite] = useState({ domain: '', repo: '', branch: 'main', framework: 'nextjs', port: '' });
+  const [selectedApp, setSelectedApp] = useState(null);
   const [mode, setMode] = useState('github');
   const [imp, setImp] = useState({ domain: '', pm2: '', port: '' });
   const logRef = useRef(null);
@@ -51,7 +53,7 @@ export default function ElnickoSpace() {
           shown = lines.length;
         }
         if (j.status !== 'running') {
-          setBusy(null); setJobId(null); siteList.refresh();
+          setBusy(null); setJobId(null); siteList.refresh(); vps.refresh();
           notify(j.status === 'done' ? `✅ ${j.title} selesai` : `❌ ${j.title} gagal`);
           return;
         }
@@ -191,7 +193,16 @@ export default function ElnickoSpace() {
           ))}
         </div>
 
-        <VpsApps apps={vps.apps} error={vps.error} mock={vps.mock} setApps={vps.setApps} onLog={addLog} />
+        <VpsApps apps={vps.apps} error={vps.error} mock={vps.mock} setApps={vps.setApps} onLog={addLog} onSelect={setSelectedApp} />
+        {selectedApp && (
+          <AppDetail
+            name={selectedApp}
+            onClose={() => setSelectedApp(null)}
+            onLog={addLog}
+            onJob={(id) => { setBusy(`app:${selectedApp}`); setJobId(id); document.getElementById('logs')?.scrollIntoView({ behavior: 'smooth' }); }}
+            onChanged={vps.refresh}
+          />
+        )}
 
         <div className="col-span-12 lg:col-span-8">
           <div className="flex items-center justify-between mb-4">

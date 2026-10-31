@@ -48,7 +48,7 @@ export function useVps(intervalMs = 10000) {
   return { status, apps, error, mock, refresh, setApps };
 }
 
-export function VpsApps({ apps, error, mock, setApps, onLog }) {
+export function VpsApps({ apps, error, mock, setApps, onLog, onSelect }) {
   const [busy, setBusy] = useState(null);
 
   const act = async (name, action) => {
@@ -84,8 +84,12 @@ export function VpsApps({ apps, error, mock, setApps, onLog }) {
             </thead>
             <tbody>
               {apps.map(a => (
-                <tr key={a.name} className="border-t border-white/5">
-                  <td className="py-2 pr-4 font-semibold">{a.name}</td>
+                <tr key={a.name} onClick={() => onSelect?.(a.name)} className="border-t border-white/5 cursor-pointer hover:bg-white/5 transition">
+                  <td className="py-2 pr-4 font-semibold">
+                    {a.name} <span className="text-white/30 text-[11px]">›</span>
+                    {a.git && !a.managedSite && <span className="ml-2 mono text-[10px] px-2 py-0.5 rounded-full bg-white/10 text-white/50 font-normal">git</span>}
+                    {a.managedSite && <span className="ml-2 mono text-[10px] px-2 py-0.5 rounded-full bg-violet-500/15 text-violet-300 font-normal">website</span>}
+                  </td>
                   <td className="pr-4">
                     <span className={a.status === 'online' ? 'text-emerald-300' : 'text-red-300'}>{a.status}</span>
                   </td>
@@ -93,7 +97,7 @@ export function VpsApps({ apps, error, mock, setApps, onLog }) {
                   <td className="pr-4 mono">{mb(a.memory)}</td>
                   <td className="pr-4 mono">{a.uptime ? fmtUptime(a.uptime) : '-'}</td>
                   <td className="pr-4 mono">{a.restarts}</td>
-                  <td className="text-right whitespace-nowrap">
+                  <td className="text-right whitespace-nowrap" onClick={e => e.stopPropagation()}>
                     {a.protected ? (
                       <span className="mono text-[11px] text-white/30">dilindungi</span>
                     ) : (

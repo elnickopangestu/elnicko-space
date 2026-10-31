@@ -87,8 +87,9 @@ function getJob(id) {
 // Pakai allowlist: env agent berisi variabel internal pm2 dan token yang tidak boleh diwariskan
 function cleanEnv(extra = {}) {
   const env = {};
-  for (const k of ['PATH', 'HOME', 'LANG', 'USER', 'PM2_HOME']) if (process.env[k]) env[k] = process.env[k];
-  return { ...env, TERM: 'dumb', ...extra };
+  for (const k of ['HOME', 'LANG', 'USER', 'PM2_HOME']) if (process.env[k]) env[k] = process.env[k];
+  env.PATH = `${process.env.PATH || '/usr/bin:/bin'}:/root/.bun/bin`;
+  return { ...env, TERM: 'dumb', GIT_TERMINAL_PROMPT: '0', ...extra };
 }
 
 function run(cmd, args, { cwd, env, job, timeout = 15 * 60 * 1000, allowFail = false } = {}) {
@@ -387,4 +388,4 @@ function deleteSite(domainRaw) {
   });
 }
 
-module.exports = { HttpError, listSites, createSite, importSite, deploySite, enableSsl, controlSite, siteLogs, deleteSite, getJob };
+module.exports = { startJob, run, append, cleanEnv, HttpError, listSites, createSite, importSite, deploySite, enableSsl, controlSite, siteLogs, deleteSite, getJob };

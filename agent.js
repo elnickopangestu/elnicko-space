@@ -4,6 +4,7 @@ const fs = require('fs');
 const crypto = require('crypto');
 const { execFile } = require('child_process');
 const sites = require('./agent-sites');
+const appsMaint = require('./agent-apps');
 
 const PORT = process.env.AGENT_PORT || 4000;
 const TOKEN = process.env.VPS_TOKEN;
@@ -51,6 +52,8 @@ async function pm2List() {
     restarts: p.pm2_env?.restart_time ?? 0,
     uptime: p.pm2_env?.status === 'online' ? Date.now() - p.pm2_env.pm_uptime : 0,
     protected: PROTECTED.has(p.name),
+    managedSite: p.name.startsWith('site-'),
+    git: !!(p.pm2_env?.pm_cwd && fs.existsSync(`${p.pm2_env.pm_cwd}/.git`)),
   }));
 }
 
@@ -120,6 +123,16 @@ const server = http.createServer(async (req, res) => {
     // GET /apps
     if (req.method === 'GET' && parts.length === 1 && parts[0] === 'apps') {
       return send(res, 200, { apps: await pm2List() });
+    }
+
+    // Maintenance: info git, log, update, hapus
+    if (parts[0] === 'apps' && parts.length === 3) {
+      const name = decodeURIComponent(parts[1]);
+      const op = parts[2];
+      if (req.method === 'GET' && op === 'info') return send(res, 200, await appsMaint.appInfo(name));
+      if (req.method === 'GET' && op === 'logs') return send(res, 200, await appsMaint.appLogs(name));
+      if (req.method === 'POST' && op === 'update') return send(res, 202, { job: (await appsMaint.updateApp(name)).id });
+      if (req.method === 'POST' && op === 'delete') return send(res, 200, { ...(await appsMaint.deleteApp(name)), apps: await pm2List() });
     }
 
     // POST /apps/:name/:action
