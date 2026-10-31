@@ -144,6 +144,10 @@ const server = http.createServer(async (req, res) => {
         const job = await sites.createSite(await readJson(req));
         return send(res, 202, { job: job.id });
       }
+      if (req.method === 'POST' && parts.length === 2 && parts[1] === 'import') {
+        const job = await sites.importSite(await readJson(req));
+        return send(res, 202, { job: job.id });
+      }
       if (parts.length >= 2) {
         const domain = decodeURIComponent(parts[1]);
         const op = parts[2];

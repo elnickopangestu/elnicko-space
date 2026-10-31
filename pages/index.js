@@ -27,6 +27,8 @@ export default function ElnickoSpace() {
   const [filter, setFilter] = useState('');
   const [creating, setCreating] = useState(false);
   const [newSite, setNewSite] = useState({ domain: '', repo: '', branch: 'main', framework: 'nextjs', port: '' });
+  const [mode, setMode] = useState('github');
+  const [imp, setImp] = useState({ domain: '', pm2: '', port: '' });
   const logRef = useRef(null);
 
   const addLog = (msg) => setLogs(prev => [...prev.slice(-300), `[${new Date().toLocaleTimeString()}] ${msg}`]);
@@ -74,8 +76,28 @@ export default function ElnickoSpace() {
   const handleDeploy = (s) => startJobCall(s.domain, `sites/${s.domain}/deploy`, 'deploy');
   const handleSsl = (s) => startJobCall(s.domain, `sites/${s.domain}/ssl`, 'ssl');
   const handleDelete = (s) => {
-    if (!confirm(`HAPUS ${s.domain}? File website, konfigurasi nginx, dan sertifikat akan dihapus dari VPS.`)) return;
-    startJobCall(s.domain, `sites/${s.domain}/delete`, 'hapus');
+    const msg = s.external
+      ? `LEPAS ${s.domain} dari dashboard? Konfigurasi nginx dan sertifikat domain dihapus, tapi aplikasi "${s.pm2}" tetap berjalan.`
+      : `HAPUS ${s.domain}? File website, konfigurasi nginx, dan sertifikat akan dihapus dari VPS.`;
+    if (!confirm(msg)) return;
+    startJobCall(s.domain, `sites/${s.domain}/delete`, s.external ? 'lepas' : 'hapus');
+  };
+
+  const handleImport = async () => {
+    setCreating(true);
+    try {
+      const r = await fetch('/api/vps/proxy?path=sites/import', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...imp, port: Number(imp.port) }) });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) { notify(`❌ ${d.error || 'Gagal'}`); setCreating(false); return; }
+      if (d.mock) { notify('MOCK: VPS_API_URL belum diset'); setCreating(false); return; }
+      setShowModal(false);
+      setBusy(imp.domain.trim().toLowerCase());
+      addLog(`> import ${imp.domain}`);
+      setImp({ domain: '', pm2: '', port: '' });
+      setJobId(d.job);
+      siteList.refresh();
+    } catch (e) { notify(`❌ ${e.message}`); }
+    setCreating(false);
   };
 
   const handleControl = async (s, action) => {
@@ -204,15 +226,17 @@ export default function ElnickoSpace() {
                     </div>
                     <span className="mono text-[11px] text-white/40 shrink-0 ml-2">{ago(site.lastDeploy)}</span>
                   </div>
-                  <p className="mono text-[11px] text-white/30 mt-3 truncate">{site.repo.replace('https://github.com/','')} • {site.branch}</p>
+                  <p className="mono text-[11px] text-white/30 mt-3 truncate">{site.external ? `app dari VPS • pm2: ${site.pm2}` : `${site.repo.replace('https://github.com/','')} • ${site.branch}`}</p>
                   <div className="flex flex-wrap gap-2 mt-4">
-                    <button onClick={()=>handleDeploy(site)} disabled={working || site.state === 'failed'} className={`flex-1 py-2 rounded-full text-[12px] font-bold transition ${working ? 'bg-white/10' : 'bg-white text-black hover:bg-white/90'} disabled:opacity-50`}>
-                      {working ? 'Bekerja...' : 'Deploy'}
-                    </button>
+                    {!site.external && (
+                      <button onClick={()=>handleDeploy(site)} disabled={working || site.state === 'failed'} className={`flex-1 py-2 rounded-full text-[12px] font-bold transition ${working ? 'bg-white/10' : 'bg-white text-black hover:bg-white/90'} disabled:opacity-50`}>
+                        {working ? 'Bekerja...' : 'Deploy'}
+                      </button>
+                    )}
                     {!isStatic && <button disabled={working} onClick={()=>handleControl(site, online ? 'stop' : 'start')} className="px-3 py-2 rounded-full bg-white/5 hover:bg-white/10 text-[12px] disabled:opacity-50">{online ? 'Stop' : 'Start'}</button>}
                     {!site.ssl && site.state === 'ready' && <button disabled={working} onClick={()=>handleSsl(site)} className="px-3 py-2 rounded-full bg-white/5 hover:bg-white/10 text-[12px] disabled:opacity-50">SSL</button>}
                     <button onClick={()=>handleLogs(site)} className="px-3 py-2 rounded-full bg-white/5 hover:bg-white/10 text-[12px]">Logs</button>
-                    <button disabled={working} onClick={()=>handleDelete(site)} className="px-3 py-2 rounded-full bg-red-500/10 text-red-300 hover:bg-red-500/20 text-[12px] disabled:opacity-50">Hapus</button>
+                    <button disabled={working} onClick={()=>handleDelete(site)} className="px-3 py-2 rounded-full bg-red-500/10 text-red-300 hover:bg-red-500/20 text-[12px] disabled:opacity-50">{site.external ? 'Lepas' : 'Hapus'}</button>
                   </div>
                 </div>
               );
@@ -240,6 +264,31 @@ export default function ElnickoSpace() {
         <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-black/70 backdrop-blur-sm">
           <div className="glass rounded-2xl w-full max-w-md p-6 glow max-h-full overflow-auto">
             <h3 className="font-bold text-lg mb-4">Add New Website</h3>
+            <div className="flex gap-2 mb-4">
+              {[['github', 'Dari GitHub'], ['import', 'Import dari VPS']].map(([k, label]) => (
+                <button key={k} onClick={()=>setMode(k)} className={`flex-1 py-2 rounded-full text-[12px] font-bold ${mode === k ? 'bg-white text-black' : 'bg-white/10'}`}>{label}</button>
+              ))}
+            </div>
+            {mode === 'import' ? (
+              <>
+                <div className="space-y-4">
+                  <div><label className="mono text-[11px] text-white/50">Domain</label><input value={imp.domain} onChange={e=>setImp({...imp, domain: e.target.value})} placeholder="bot.namamu.com" className={inputCls} /></div>
+                  <div><label className="mono text-[11px] text-white/50">Proses pm2 yang sudah berjalan</label>
+                    <select value={imp.pm2} onChange={e=>setImp({...imp, pm2: e.target.value})} className={inputCls}>
+                      <option value="">Pilih proses...</option>
+                      {(vps.apps || []).filter(a => !a.protected && !a.name.startsWith('site-')).map(a => <option key={a.name} value={a.name}>{a.name} ({a.status})</option>)}
+                    </select>
+                  </div>
+                  <div><label className="mono text-[11px] text-white/50">Port aplikasi</label><input type="number" value={imp.port} onChange={e=>setImp({...imp, port: e.target.value})} placeholder="mis. 3000" className={inputCls} /></div>
+                  <p className="text-[11px] text-white/40">Aplikasi tidak diubah atau di-restart. Dashboard hanya membuat konfigurasi nginx untuk domain ini. Arahkan DNS A record ke IP VPS, lalu klik SSL.</p>
+                </div>
+                <div className="flex gap-3 mt-6">
+                  <button onClick={()=>setShowModal(false)} className="flex-1 py-3 rounded-full bg-white/10 text-[13px]">Batal</button>
+                  <button onClick={handleImport} disabled={creating || !imp.domain || !imp.pm2 || !imp.port} className="flex-1 py-3 rounded-full bg-white text-black font-bold text-[13px] disabled:opacity-50">{creating ? 'Memproses...' : 'Import'}</button>
+                </div>
+              </>
+            ) : (
+            <>
             <div className="space-y-4">
               <div><label className="mono text-[11px] text-white/50">Domain</label><input value={newSite.domain} onChange={e=>setNewSite({...newSite, domain: e.target.value})} placeholder="baru.com" className={inputCls} /></div>
               <div><label className="mono text-[11px] text-white/50">GitHub Repo (publik)</label><input value={newSite.repo} onChange={e=>setNewSite({...newSite, repo: e.target.value})} placeholder="https://github.com/user/repo" className={inputCls} /></div>
@@ -254,6 +303,8 @@ export default function ElnickoSpace() {
               <button onClick={()=>setShowModal(false)} className="flex-1 py-3 rounded-full bg-white/10 text-[13px]">Batal</button>
               <button onClick={handleAddSite} disabled={creating || !newSite.domain || !newSite.repo} className="flex-1 py-3 rounded-full bg-white text-black font-bold text-[13px] disabled:opacity-50">{creating ? 'Membuat...' : 'Buat Website'}</button>
             </div>
+            </>
+            )}
           </div>
         </div>
       )}

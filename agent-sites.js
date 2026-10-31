@@ -39,6 +39,10 @@ function save(reg) {
 
 const dirOf = (domain) => path.join(WWW, domain);
 const pm2Name = (domain) => `site-${domain}`;
+// App eksternal (diimpor) memakai nama proses pm2 yang sudah ada
+const procName = (site) => site.pm2 || pm2Name(site.domain);
+const PM2_NAME_RE = /^[A-Za-z0-9._-]{1,64}$/;
+const PROTECTED = new Set((process.env.PROTECTED_APPS || 'elnicko-agent,elnicko-tunnel').split(',').map(x => x.trim()).filter(Boolean));
 
 function normDomain(d) {
   const domain = String(d || '').trim().toLowerCase();
@@ -226,7 +230,7 @@ async function listSites() {
   const pm2 = await pm2Status();
   return Object.values(reg).map(s => ({
     ...s,
-    process: s.framework === 'static' ? null : (pm2[pm2Name(s.domain)] || null),
+    process: s.framework === 'static' ? null : (pm2[procName(s)] || null),
     ssl: fs.existsSync(`/etc/letsencrypt/live/${s.domain}/fullchain.pem`),
   })).sort((a, b) => a.createdAt - b.createdAt);
 }
@@ -265,6 +269,37 @@ async function createSite(input) {
   });
 }
 
+// Daftarkan aplikasi yang sudah berjalan di VPS (pm2 + port lokal) agar dapat domain lewat nginx
+async function importSite(input) {
+  const domain = normDomain(input.domain);
+  const pm2 = String(input.pm2 || '').trim();
+  if (!PM2_NAME_RE.test(pm2)) throw new HttpError(400, 'Nama proses pm2 tidak valid');
+  if (PROTECTED.has(pm2) || pm2.startsWith('site-')) throw new HttpError(400, 'Proses ini tidak bisa diimpor');
+  const port = Number(input.port);
+  if (!Number.isInteger(port) || port < 1024 || port > 65535 || port === 4000) throw new HttpError(400, 'Port tidak valid');
+
+  const procs = await pm2Status();
+  if (!procs[pm2]) throw new HttpError(404, 'Proses pm2 tidak ditemukan');
+  if (!(await portInUse(port))) throw new HttpError(400, `Tidak ada aplikasi yang listen di port ${port}`);
+
+  const reg = load();
+  if (reg[domain] || fs.existsSync(dirOf(domain))) throw new HttpError(409, 'Domain sudah terdaftar');
+  const site = { domain, repo: '', branch: '', framework: 'external', port, pm2, external: true, state: 'creating', createdAt: Date.now(), lastDeploy: null };
+  reg[domain] = site;
+  save(reg);
+
+  return startJob(domain, `Import ${domain}`, async (job) => {
+    try {
+      await writeNginx(site, job);
+      const r = load(); if (r[domain]) { r[domain].state = 'ready'; save(r); }
+      append(job, `\n✅ ${domain} -> 127.0.0.1:${port} (${pm2}). Arahkan DNS A record ke server ini, lalu klik SSL.\n`);
+    } catch (e) {
+      const r = load(); delete r[domain]; save(r);
+      throw e;
+    }
+  });
+}
+
 function getSite(domainRaw) {
   const domain = normDomain(domainRaw);
   const site = load()[domain];
@@ -274,6 +309,7 @@ function getSite(domainRaw) {
 
 function deploySite(domainRaw) {
   const site = getSite(domainRaw);
+  if (site.external) throw new HttpError(400, 'App eksternal dikelola di luar dashboard, tidak bisa di-deploy dari sini');
   return startJob(site.domain, `Deploy ${site.domain}`, async (job) => {
     await pullLatest(site, job);
     await build(site, job);
@@ -315,23 +351,26 @@ async function controlSite(domainRaw, action) {
   if (site.framework === 'static') throw new HttpError(400, 'Website static tidak punya proses');
   if (!['start', 'stop', 'restart'].includes(action)) throw new HttpError(400, 'Aksi tidak valid');
   // 'pm2 start <nama>' gagal untuk nama bertitik; restart juga menghidupkan proses yang berhenti
-  await run('pm2', [action === 'start' ? 'restart' : action, pm2Name(site.domain)]);
+  await run('pm2', [action === 'start' ? 'restart' : action, procName(site)]);
   return { success: true };
 }
 
 async function siteLogs(domainRaw) {
   const site = getSite(domainRaw);
   if (site.framework === 'static') return { logs: 'Website static: tidak ada log aplikasi.' };
-  const out = await run('pm2', ['logs', pm2Name(site.domain), '--nostream', '--lines', '80', '--raw'], { allowFail: true });
+  const out = await run('pm2', ['logs', procName(site), '--nostream', '--lines', '80', '--raw'], { allowFail: true });
   return { logs: out.slice(-20000) };
 }
 
 function deleteSite(domainRaw) {
   const site = getSite(domainRaw);
-  return startJob(site.domain, `Hapus ${site.domain}`, async (job) => {
+  return startJob(site.domain, site.external ? `Lepas ${site.domain}` : `Hapus ${site.domain}`, async (job) => {
     const dir = dirOf(site.domain);
-    if (path.dirname(dir) !== path.resolve(WWW) || path.basename(dir) !== site.domain) throw new Error('Path tidak aman, dibatalkan');
-    if (site.framework !== 'static') await run('pm2', ['delete', pm2Name(site.domain)], { job, allowFail: true });
+    // App eksternal: hanya konfigurasi nginx + registry yang dihapus, proses dan file aplikasi tidak disentuh
+    if (!site.external) {
+      if (path.dirname(dir) !== path.resolve(WWW) || path.basename(dir) !== site.domain) throw new Error('Path tidak aman, dibatalkan');
+      if (site.framework !== 'static') await run('pm2', ['delete', pm2Name(site.domain)], { job, allowFail: true });
+    }
     fs.rmSync(path.join(NGINX_ENABLED, `${site.domain}.conf`), { force: true });
     fs.rmSync(path.join(NGINX_AVAIL, `${site.domain}.conf`), { force: true });
     await run('nginx', ['-t'], { job, allowFail: true });
@@ -339,11 +378,13 @@ function deleteSite(domainRaw) {
     if (fs.existsSync(`/etc/letsencrypt/live/${site.domain}`)) {
       await run('certbot', ['delete', '--cert-name', site.domain, '--non-interactive'], { job, allowFail: true });
     }
-    fs.rmSync(dir, { recursive: true, force: true });
+    if (!site.external) fs.rmSync(dir, { recursive: true, force: true });
     const r = load(); delete r[site.domain]; save(r);
     await run('pm2', ['save'], { job, allowFail: true });
-    append(job, `\n✅ ${site.domain} dihapus\n`);
+    append(job, site.external
+      ? `\n✅ ${site.domain} dilepas dari dashboard (aplikasi ${site.pm2} tetap berjalan)\n`
+      : `\n✅ ${site.domain} dihapus\n`);
   });
 }
 
-module.exports = { HttpError, listSites, createSite, deploySite, enableSsl, controlSite, siteLogs, deleteSite, getJob };
+module.exports = { HttpError, listSites, createSite, importSite, deploySite, enableSsl, controlSite, siteLogs, deleteSite, getJob };

@@ -7,6 +7,7 @@ const ALLOWED = [
   { method: 'POST', re: /^apps\/[A-Za-z0-9._-]{1,64}\/(restart|stop|start)$/ },
   { method: 'GET', re: /^sites$/ },
   { method: 'POST', re: /^sites$/, body: true },
+  { method: 'POST', re: /^sites\/import$/, body: true },
   { method: 'GET', re: new RegExp(`^sites/${D}/logs$`) },
   { method: 'POST', re: new RegExp(`^sites/${D}/(deploy|ssl|delete|start|stop|restart)$`) },
   { method: 'GET', re: /^jobs\/[a-f0-9]{6,32}$/ },
