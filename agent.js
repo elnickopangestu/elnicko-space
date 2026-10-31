@@ -3,6 +3,7 @@ const os = require('os');
 const fs = require('fs');
 const crypto = require('crypto');
 const { execFile } = require('child_process');
+const sites = require('./agent-sites');
 
 const PORT = process.env.AGENT_PORT || 4000;
 const TOKEN = process.env.VPS_TOKEN;
@@ -87,6 +88,14 @@ async function status() {
   };
 }
 
+function readJson(req) {
+  return new Promise((resolve, reject) => {
+    let raw = '';
+    req.on('data', (c) => { raw += c; if (raw.length > 10000) { reject(new sites.HttpError(413, 'Body terlalu besar')); req.destroy(); } });
+    req.on('end', () => { try { resolve(raw ? JSON.parse(raw) : {}); } catch { reject(new sites.HttpError(400, 'JSON tidak valid')); } });
+  });
+}
+
 const server = http.createServer(async (req, res) => {
   if (!authorized(req.headers.authorization)) {
     return send(res, 401, { error: 'Unauthorized' });
@@ -128,10 +137,37 @@ const server = http.createServer(async (req, res) => {
       return send(res, 200, { success: true, name, action, apps: await pm2List() });
     }
 
+    // ---- Websites ----
+    if (parts[0] === 'sites') {
+      if (req.method === 'GET' && parts.length === 1) return send(res, 200, { sites: await sites.listSites() });
+      if (req.method === 'POST' && parts.length === 1) {
+        const job = await sites.createSite(await readJson(req));
+        return send(res, 202, { job: job.id });
+      }
+      if (parts.length >= 2) {
+        const domain = decodeURIComponent(parts[1]);
+        const op = parts[2];
+        if (req.method === 'GET' && op === 'logs') return send(res, 200, await sites.siteLogs(domain));
+        if (req.method === 'POST' && ['deploy', 'ssl', 'delete'].includes(op)) {
+          const fn = { deploy: sites.deploySite, ssl: sites.enableSsl, delete: sites.deleteSite }[op];
+          return send(res, 202, { job: fn(domain).id });
+        }
+        if (req.method === 'POST' && ['start', 'stop', 'restart'].includes(op)) {
+          return send(res, 200, await sites.controlSite(domain, op));
+        }
+      }
+    }
+
+    // GET /jobs/:id
+    if (req.method === 'GET' && parts.length === 2 && parts[0] === 'jobs') {
+      const j = sites.getJob(parts[1]);
+      return send(res, 200, { id: j.id, domain: j.domain, title: j.title, status: j.status, log: j.log, startedAt: j.startedAt, endedAt: j.endedAt });
+    }
+
     send(res, 404, { error: 'Not found' });
   } catch (e) {
     console.error('[AGENT] error:', e.message);
-    send(res, 500, { error: e.message });
+    send(res, e.status || 500, { error: e.message });
   }
 });
 

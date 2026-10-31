@@ -116,3 +116,31 @@ export function VpsApps({ apps, error, mock, setApps, onLog }) {
     </div>
   );
 }
+
+export { call };
+
+export function useSites(intervalMs = 10000) {
+  const [sites, setSites] = useState(null);
+  const [error, setError] = useState('');
+  const [mock, setMock] = useState(false);
+
+  const refresh = useCallback(async () => {
+    try {
+      const d = await call('sites');
+      if (d.mock) { setMock(true); setSites([]); return; }
+      setMock(false); setSites(d.sites); setError('');
+    } catch (e) { setError(e.message); }
+  }, []);
+
+  useEffect(() => {
+    let t = null;
+    const start = () => { if (!t) { refresh(); t = setInterval(refresh, intervalMs); } };
+    const stop = () => { clearInterval(t); t = null; };
+    const onVis = () => (document.hidden ? stop() : start());
+    onVis();
+    document.addEventListener('visibilitychange', onVis);
+    return () => { stop(); document.removeEventListener('visibilitychange', onVis); };
+  }, [refresh, intervalMs]);
+
+  return { sites, error, mock, refresh };
+}

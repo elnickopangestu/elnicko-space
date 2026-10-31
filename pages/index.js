@@ -1,71 +1,122 @@
-import { useState } from 'react';
-import { useVps, VpsApps, gb } from '../components/LiveVps';
+import { useState, useEffect, useRef } from 'react';
+import { useVps, useSites, VpsApps, gb, call } from '../components/LiveVps';
 
-const initialSites = [
-  { id: 1, domain: 'tokoku.id', framework: 'Next.js', port: 3000, status: 'running', ssl: true, lastDeploy: '2 jam lalu', vercel: true, cpu: 12 },
-  { id: 2, domain: 'portofolio.elnicko.id', framework: 'Static', port: 3001, status: 'running', ssl: true, lastDeploy: '1 hari lalu', vercel: false, cpu: 2 },
-  { id: 3, domain: 'api.tokoku.id', framework: 'Node API', port: 3002, status: 'running', ssl: true, lastDeploy: '5 jam lalu', vercel: false, cpu: 18 },
-  { id: 4, domain: 'client-laundry.com', framework: 'Laravel', port: 3003, status: 'stopped', ssl: false, lastDeploy: '3 hari lalu', vercel: false, cpu: 0 },
-  { id: 5, domain: 'blog.elnicko.id', framework: 'WordPress', port: 3004, status: 'running', ssl: true, lastDeploy: '12 jam lalu', vercel: false, cpu: 8 },
+const FRAMEWORKS = [
+  { value: 'nextjs', label: 'Next.js' },
+  { value: 'node', label: 'Node.js (npm start)' },
+  { value: 'static', label: 'Static (HTML)' },
 ];
 
+const ago = (t) => {
+  if (!t) return '-';
+  const m = Math.floor((Date.now() - t) / 60000);
+  if (m < 1) return 'Baru saja';
+  if (m < 60) return `${m} menit lalu`;
+  const h = Math.floor(m / 60);
+  return h < 48 ? `${h} jam lalu` : `${Math.floor(h / 24)} hari lalu`;
+};
+
 export default function ElnickoSpace() {
-  const [sites, setSites] = useState(initialSites);
   const vps = useVps();
-  const [logs, setLogs] = useState(['[System] Elnicko Space Agent connected...', '[System] VPS Bandung - Online', '[System] Ready for deploy commands']);
+  const siteList = useSites();
+  const [logs, setLogs] = useState(['[System] Elnicko Space siap']);
+  const [jobId, setJobId] = useState(null);
+  const [busy, setBusy] = useState(null);
   const [showModal, setShowModal] = useState(false);
-  const [deployingId, setDeployingId] = useState(null);
   const [toast, setToast] = useState(null);
   const [filter, setFilter] = useState('');
-  const [newSite, setNewSite] = useState({ domain: '', repo: '', framework: 'Next.js', port: 3005 });
+  const [creating, setCreating] = useState(false);
+  const [newSite, setNewSite] = useState({ domain: '', repo: '', branch: 'main', framework: 'nextjs', port: '' });
+  const logRef = useRef(null);
 
-  const addLog = (msg) => setLogs(prev => [...prev.slice(-80), `[${new Date().toLocaleTimeString()}] ${msg}`]);
+  const addLog = (msg) => setLogs(prev => [...prev.slice(-300), `[${new Date().toLocaleTimeString()}] ${msg}`]);
+  const notify = (msg) => { setToast(msg); setTimeout(() => setToast(null), 3500); };
 
-  const handleDeploy = async (site) => {
-    setDeployingId(site.id);
-    addLog(`> Deploying ${site.domain}...`);
-    addLog(`> git pull origin main`);
-    await new Promise(r => setTimeout(r, 800));
-    addLog(`> Already up to date / pulling changes`);
-    addLog(`> ${site.framework === 'Next.js' ? 'npm run build' : site.framework === 'Laravel' ? 'composer install' : 'building...'}`);
-    await new Promise(r => setTimeout(r, 1200));
-    addLog(`> docker build -t ${site.domain} .`);
-    await new Promise(r => setTimeout(r, 1000));
-    addLog(`> Restarting container :${site.port} ...`);
-    await new Promise(r => setTimeout(r, 600));
-    addLog(`✅ ${site.domain} deployed successfully - LIVE`);
-    setSites(s => s.map(x => x.id === site.id ? { ...x, lastDeploy: 'Baru saja', status: 'running' } : x));
-    setDeployingId(null);
-    setToast(`🚀 ${site.domain} berhasil deploy!`);
-    setTimeout(() => setToast(null), 3000);
+  useEffect(() => { if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight; }, [logs]);
+
+  // Ikuti job yang sedang berjalan dan tampilkan lognya
+  useEffect(() => {
+    if (!jobId) return;
+    let stop = false;
+    let shown = 0;
+    const tick = async () => {
+      try {
+        const j = await call(`jobs/${jobId}`);
+        const lines = j.log.split('\n');
+        if (lines.length > shown) {
+          const fresh = lines.slice(shown).filter(Boolean);
+          if (fresh.length) setLogs(p => [...p.slice(-300), ...fresh]);
+          shown = lines.length;
+        }
+        if (j.status !== 'running') {
+          setBusy(null); setJobId(null); siteList.refresh();
+          notify(j.status === 'done' ? `✅ ${j.title} selesai` : `❌ ${j.title} gagal`);
+          return;
+        }
+      } catch (e) { addLog(`❌ ${e.message}`); setBusy(null); setJobId(null); return; }
+      if (!stop) setTimeout(tick, 1500);
+    };
+    tick();
+    return () => { stop = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [jobId]);
+
+  const startJobCall = async (domain, path, label) => {
+    setBusy(domain);
+    addLog(`> ${label} ${domain}`);
+    try {
+      const d = await call(path, 'POST');
+      if (d.mock) { addLog('MOCK: VPS_API_URL belum diset'); setBusy(null); return; }
+      setJobId(d.job);
+    } catch (e) { addLog(`❌ ${e.message}`); setBusy(null); }
   };
 
-  const handleRestart = (site) => {
-    setSites(s => s.map(x => x.id === site.id ? { ...x, status: x.status === 'running' ? 'stopped' : 'running' } : x));
-    addLog(`${site.status === 'running' ? 'Stopping' : 'Starting'} ${site.domain} ... Done`);
+  const handleDeploy = (s) => startJobCall(s.domain, `sites/${s.domain}/deploy`, 'deploy');
+  const handleSsl = (s) => startJobCall(s.domain, `sites/${s.domain}/ssl`, 'ssl');
+  const handleDelete = (s) => {
+    if (!confirm(`HAPUS ${s.domain}? File website, konfigurasi nginx, dan sertifikat akan dihapus dari VPS.`)) return;
+    startJobCall(s.domain, `sites/${s.domain}/delete`, 'hapus');
   };
 
-  const handleAddSite = () => {
-    if (!newSite.domain.includes('.')) {
-      setToast('❌ Domain harus valid (contoh: baru.com)');
-      setTimeout(() => setToast(null), 2500);
-      return;
-    }
-    if (sites.some(s => s.port === Number(newSite.port))) {
-      setToast('❌ Port sudah dipakai');
-      setTimeout(() => setToast(null), 2500);
-      return;
-    }
-    const site = { id: Date.now(), domain: newSite.domain, framework: newSite.framework, port: Number(newSite.port), status: 'running', ssl: true, lastDeploy: 'Baru saja', vercel: false, cpu: 5 };
-    setSites([...sites, site]);
-    addLog(`✅ New site added: ${site.domain} on :${site.port}`);
-    setShowModal(false);
-    setNewSite({ domain: '', repo: '', framework: 'Next.js', port: 3006 });
-    setToast(`✨ ${site.domain} ditambahkan`);
-    setTimeout(() => setToast(null), 3000);
+  const handleControl = async (s, action) => {
+    setBusy(s.domain);
+    try { await call(`sites/${s.domain}/${action}`, 'POST'); addLog(`✅ ${s.domain} ${action} OK`); siteList.refresh(); }
+    catch (e) { addLog(`❌ ${s.domain} ${action}: ${e.message}`); }
+    setBusy(null);
   };
 
-  const filtered = sites.filter(s => s.domain.toLowerCase().includes(filter.toLowerCase()));
+  const handleLogs = async (s) => {
+    try {
+      const d = await call(`sites/${s.domain}/logs`);
+      addLog(`--- log ${s.domain} ---`);
+      const lines = (d.logs || '').split('\n').slice(-60).filter(Boolean);
+      setLogs(p => [...p.slice(-300), ...lines]);
+      document.getElementById('logs')?.scrollIntoView({ behavior: 'smooth' });
+    } catch (e) { addLog(`❌ ${e.message}`); }
+  };
+
+  const handleAddSite = async () => {
+    setCreating(true);
+    try {
+      const body = { ...newSite, port: newSite.port ? Number(newSite.port) : undefined };
+      const r = await fetch('/api/vps/proxy?path=sites', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) { notify(`❌ ${d.error || 'Gagal'}`); setCreating(false); return; }
+      if (d.mock) { notify('MOCK: VPS_API_URL belum diset'); setCreating(false); return; }
+      setShowModal(false);
+      setBusy(newSite.domain.trim().toLowerCase());
+      addLog(`> membuat ${newSite.domain}`);
+      setNewSite({ domain: '', repo: '', branch: 'main', framework: 'nextjs', port: '' });
+      setJobId(d.job);
+      siteList.refresh();
+    } catch (e) { notify(`❌ ${e.message}`); }
+    setCreating(false);
+  };
+
+  const sites = siteList.sites || [];
+  const filtered = sites.filter(s => s.domain.includes(filter.toLowerCase()));
+  const running = sites.filter(s => s.framework === 'static' ? s.state === 'ready' : s.process?.status === 'online').length;
+  const inputCls = 'w-full mt-1 bg-black/50 border border-white/10 rounded-xl px-4 py-3 text-[14px] outline-none focus:border-violet-500/50';
 
   return (
     <div className="min-h-screen bg-[#06080f] text-white" style={{fontFamily: 'ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif'}}>
@@ -86,10 +137,10 @@ export default function ElnickoSpace() {
             <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-violet-600 to-indigo-600 flex items-center justify-center glow">◐</div>
             <div>
               <h1 className="font-bold tracking-widest text-[14px]">ELNICKO SPACE</h1>
-              <p className="mono text-[11px] text-white/50">VPS MANAGER • BANDUNG • v1.0</p>
+              <p className="mono text-[11px] text-white/50">VPS MANAGER • {vps.status?.hostname || 'VPS'}</p>
             </div>
             <div className="hidden md:flex items-center gap-2 ml-6 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20">
-              <span className="w-2 h-2 rounded-full bg-emerald-400 pulse-dot" />
+              <span className={`w-2 h-2 rounded-full ${vps.status ? 'bg-emerald-400 pulse-dot' : 'bg-red-400'}`} />
               <span className="mono text-[11px] text-emerald-300">{vps.status ? `ONLINE • ${vps.status.cpus} vCPU • ${gb(vps.status.memory.total)}` : vps.error ? 'OFFLINE' : 'CONNECTING'}</span>
             </div>
           </div>
@@ -104,7 +155,7 @@ export default function ElnickoSpace() {
       <div className="max-w-[1600px] mx-auto px-6 py-6 grid grid-cols-12 gap-6 relative">
         <div className="col-span-12 grid grid-cols-2 md:grid-cols-4 gap-4">
           {[
-            { label: 'Total Websites', value: sites.length, sub: `${sites.filter(s=>s.status==='running').length} running` },
+            { label: 'Total Websites', value: sites.length, sub: `${running} running` },
             { label: 'CPU Usage', value: vps.status ? `${vps.status.cpuPercent}%` : '—', sub: vps.status ? `${vps.status.cpus} vCPU • load ${vps.status.load[0].toFixed(2)}` : 'menunggu VPS', bar: vps.status?.cpuPercent },
             { label: 'RAM Usage', value: vps.status ? gb(vps.status.memory.used) : '—', sub: vps.status ? `dari ${gb(vps.status.memory.total)}` : 'menunggu VPS', bar: vps.status ? Math.round(vps.status.memory.used / vps.status.memory.total * 100) : undefined },
             { label: 'Disk Usage', value: vps.status ? gb(vps.status.disk.used) : '—', sub: vps.status ? `dari ${gb(vps.status.disk.total)}` : 'menunggu VPS', bar: vps.status ? Math.round(vps.status.disk.used / vps.status.disk.total * 100) : undefined },
@@ -113,7 +164,7 @@ export default function ElnickoSpace() {
               <p className="text-[11px] text-white/40 tracking-widest">{s.label}</p>
               <p className="text-2xl font-bold mt-1">{s.value}</p>
               <p className="mono text-[11px] text-white/50 mt-1">{s.sub}</p>
-              {s.bar && <div className="h-1 bg-white/10 rounded-full mt-3 overflow-hidden"><div className="h-full bg-gradient-to-r from-violet-500 to-indigo-500" style={{width: `${s.bar}%`}} /></div>}
+              {s.bar != null && <div className="h-1 bg-white/10 rounded-full mt-3 overflow-hidden"><div className="h-full bg-gradient-to-r from-violet-500 to-indigo-500" style={{width: `${s.bar}%`}} /></div>}
             </div>
           ))}
         </div>
@@ -123,50 +174,63 @@ export default function ElnickoSpace() {
         <div className="col-span-12 lg:col-span-8">
           <div className="flex items-center justify-between mb-4">
             <h2 className="font-bold">Websites • {filtered.length}</h2>
-            <span className="mono text-[11px] text-white/40">1 VPS • Semua domain point ke IP yang sama</span>
+            <span className="mono text-[11px] text-white/40">{siteList.error ? siteList.error : siteList.mock ? 'MOCK • VPS_API_URL belum diset' : 'Domain harus A record ke IP VPS'}</span>
           </div>
+          {siteList.sites && filtered.length === 0 && (
+            <div className="glass rounded-2xl p-8 text-center text-[13px] text-white/50">
+              Belum ada website. Klik <b className="text-white">+ New Website</b> untuk deploy dari repo GitHub.
+            </div>
+          )}
           <div className="grid md:grid-cols-2 gap-4">
-            {filtered.map(site=>(
-              <div key={site.id} className="glass rounded-2xl p-5 hover:border-violet-500/30 transition group">
-                <div className="flex items-start justify-between">
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <span className={`w-2 h-2 rounded-full ${site.status==='running'?'bg-emerald-400 pulse-dot':'bg-red-400'}`} />
-                      <h3 className="font-bold">{site.domain}</h3>
-                      {site.vercel && <span className="text-[10px] px-2 py-0.5 rounded-full bg-white text-black font-bold">VERCEL</span>}
+            {filtered.map(site => {
+              const isStatic = site.framework === 'static';
+              const online = isStatic ? site.state === 'ready' : site.process?.status === 'online';
+              const working = busy === site.domain || site.state === 'creating';
+              return (
+                <div key={site.domain} className="glass rounded-2xl p-5 hover:border-violet-500/30 transition group">
+                  <div className="flex items-start justify-between">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className={`w-2 h-2 rounded-full shrink-0 ${site.state === 'failed' ? 'bg-amber-400' : online ? 'bg-emerald-400 pulse-dot' : 'bg-red-400'}`} />
+                        <h3 className="font-bold truncate">{site.domain}</h3>
+                      </div>
+                      <div className="flex flex-wrap gap-2 mt-2">
+                        <span className="mono text-[11px] px-2 py-1 rounded-full bg-white/10">{site.framework}</span>
+                        {site.port && <span className="mono text-[11px] px-2 py-1 rounded-full bg-white/5">:{site.port}</span>}
+                        {site.ssl && <span className="text-[11px] px-2 py-1 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/20">SSL ✓</span>}
+                        {site.state === 'failed' && <span className="text-[11px] px-2 py-1 rounded-full bg-amber-500/15 text-amber-300">Gagal dibuat</span>}
+                        {site.state === 'creating' && <span className="text-[11px] px-2 py-1 rounded-full bg-violet-500/15 text-violet-300">Membuat...</span>}
+                      </div>
                     </div>
-                    <div className="flex gap-2 mt-2">
-                      <span className="mono text-[11px] px-2 py-1 rounded-full bg-white/10">{site.framework}</span>
-                      <span className="mono text-[11px] px-2 py-1 rounded-full bg-white/5">:{site.port}</span>
-                      {site.ssl && <span className="text-[11px] px-2 py-1 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/20">SSL ✓</span>}
-                    </div>
+                    <span className="mono text-[11px] text-white/40 shrink-0 ml-2">{ago(site.lastDeploy)}</span>
                   </div>
-                  <span className="mono text-[11px] text-white/40">{site.lastDeploy}</span>
+                  <p className="mono text-[11px] text-white/30 mt-3 truncate">{site.repo.replace('https://github.com/','')} • {site.branch}</p>
+                  <div className="flex flex-wrap gap-2 mt-4">
+                    <button onClick={()=>handleDeploy(site)} disabled={working || site.state === 'failed'} className={`flex-1 py-2 rounded-full text-[12px] font-bold transition ${working ? 'bg-white/10' : 'bg-white text-black hover:bg-white/90'} disabled:opacity-50`}>
+                      {working ? 'Bekerja...' : 'Deploy'}
+                    </button>
+                    {!isStatic && <button disabled={working} onClick={()=>handleControl(site, online ? 'stop' : 'start')} className="px-3 py-2 rounded-full bg-white/5 hover:bg-white/10 text-[12px] disabled:opacity-50">{online ? 'Stop' : 'Start'}</button>}
+                    {!site.ssl && site.state === 'ready' && <button disabled={working} onClick={()=>handleSsl(site)} className="px-3 py-2 rounded-full bg-white/5 hover:bg-white/10 text-[12px] disabled:opacity-50">SSL</button>}
+                    <button onClick={()=>handleLogs(site)} className="px-3 py-2 rounded-full bg-white/5 hover:bg-white/10 text-[12px]">Logs</button>
+                    <button disabled={working} onClick={()=>handleDelete(site)} className="px-3 py-2 rounded-full bg-red-500/10 text-red-300 hover:bg-red-500/20 text-[12px] disabled:opacity-50">Hapus</button>
+                  </div>
                 </div>
-                <div className="flex gap-2 mt-4">
-                  <button onClick={()=>handleDeploy(site)} disabled={deployingId===site.id} className={`flex-1 py-2 rounded-full text-[12px] font-bold transition ${deployingId===site.id?'bg-white/10':'bg-white text-black hover:bg-white/90'}`}>
-                    {deployingId===site.id?'Deploying...':'Deploy'}
-                  </button>
-                  <button onClick={()=>handleRestart(site)} className="px-3 py-2 rounded-full bg-white/5 hover:bg-white/10 text-[12px]">{site.status==='running'?'Stop':'Start'}</button>
-                  <button onClick={()=>{document.getElementById('logs').scrollIntoView(); addLog(`> tail -f logs for ${site.domain}`);}} className="px-3 py-2 rounded-full bg-white/5 hover:bg-white/10 text-[12px]">Logs</button>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
 
         <div className="col-span-12 lg:col-span-4 space-y-4">
           <div className="glass rounded-2xl overflow-hidden">
             <div className="p-4 border-b border-white/10 flex items-center justify-between">
-              <h3 className="font-bold text-[13px]">Live Deploy Logs</h3>
-              <span className="mono text-[10px] text-white/40">AUTO SCROLL</span>
+              <h3 className="font-bold text-[13px]">Live Logs</h3>
+              <span className="mono text-[10px] text-white/40">{jobId ? 'JOB BERJALAN...' : 'IDLE'}</span>
             </div>
-            <div id="logs" className="mono h-[280px] overflow-auto bg-black/50 p-4 text-[11px] leading-5">
-              {logs.map((l,i)=><div key={i} className={l.includes('✅')?'text-emerald-300': l.includes('>')?'text-white/80':'text-white/40'}>{l}</div>)}
+            <div id="logs" ref={logRef} className="mono h-[320px] overflow-auto bg-black/50 p-4 text-[11px] leading-5">
+              {logs.map((l,i)=><div key={i} className={`whitespace-pre-wrap break-all ${l.includes('✅')?'text-emerald-300': l.includes('❌')?'text-red-300': l.includes('$')||l.includes('>')?'text-white/80':'text-white/40'}`}>{l}</div>)}
             </div>
             <div className="p-3 bg-white/5 flex gap-2">
               <button onClick={()=>setLogs([])} className="text-[11px] px-3 py-1 rounded-full bg-white/10">Clear</button>
-              <button onClick={()=>addLog('> Vercel deploy hook triggered')} className="text-[11px] px-3 py-1 rounded-full bg-violet-600 text-white">Push to Vercel</button>
             </div>
           </div>
         </div>
@@ -174,19 +238,21 @@ export default function ElnickoSpace() {
 
       {showModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-black/70 backdrop-blur-sm">
-          <div className="glass rounded-2xl w-full max-w-md p-6 glow">
+          <div className="glass rounded-2xl w-full max-w-md p-6 glow max-h-full overflow-auto">
             <h3 className="font-bold text-lg mb-4">Add New Website</h3>
             <div className="space-y-4">
-              <div><label className="mono text-[11px] text-white/50">Domain</label><input value={newSite.domain} onChange={e=>setNewSite({...newSite, domain: e.target.value})} placeholder="baru.com" className="w-full mt-1 bg-black/50 border border-white/10 rounded-xl px-4 py-3 text-[14px] outline-none focus:border-violet-500/50" /></div>
-              <div><label className="mono text-[11px] text-white/50">Git Repo URL</label><input value={newSite.repo} onChange={e=>setNewSite({...newSite, repo: e.target.value})} placeholder="https://github.com/..." className="w-full mt-1 bg-black/50 border border-white/10 rounded-xl px-4 py-3 text-[14px] outline-none focus:border-violet-500/50" /></div>
+              <div><label className="mono text-[11px] text-white/50">Domain</label><input value={newSite.domain} onChange={e=>setNewSite({...newSite, domain: e.target.value})} placeholder="baru.com" className={inputCls} /></div>
+              <div><label className="mono text-[11px] text-white/50">GitHub Repo (publik)</label><input value={newSite.repo} onChange={e=>setNewSite({...newSite, repo: e.target.value})} placeholder="https://github.com/user/repo" className={inputCls} /></div>
               <div className="grid grid-cols-2 gap-3">
-                <div><label className="mono text-[11px] text-white/50">Framework</label><select value={newSite.framework} onChange={e=>setNewSite({...newSite, framework: e.target.value})} className="w-full mt-1 bg-black/50 border border-white/10 rounded-xl px-4 py-3 text-[14px]"><option>Next.js</option><option>Laravel</option><option>WordPress</option><option>Static</option><option>Node API</option></select></div>
-                <div><label className="mono text-[11px] text-white/50">Port</label><input type="number" value={newSite.port} onChange={e=>setNewSite({...newSite, port: e.target.value})} className="w-full mt-1 bg-black/50 border border-white/10 rounded-xl px-4 py-3 text-[14px]" /></div>
+                <div><label className="mono text-[11px] text-white/50">Branch</label><input value={newSite.branch} onChange={e=>setNewSite({...newSite, branch: e.target.value})} className={inputCls} /></div>
+                <div><label className="mono text-[11px] text-white/50">Port (opsional)</label><input type="number" value={newSite.port} onChange={e=>setNewSite({...newSite, port: e.target.value})} placeholder="otomatis" disabled={newSite.framework === 'static'} className={inputCls + ' disabled:opacity-40'} /></div>
               </div>
+              <div><label className="mono text-[11px] text-white/50">Framework</label><select value={newSite.framework} onChange={e=>setNewSite({...newSite, framework: e.target.value})} className={inputCls}>{FRAMEWORKS.map(f=><option key={f.value} value={f.value}>{f.label}</option>)}</select></div>
+              <p className="text-[11px] text-white/40">Build berjalan di VPS. Setelah selesai, arahkan DNS A record domain ke IP VPS, lalu klik SSL.</p>
             </div>
             <div className="flex gap-3 mt-6">
               <button onClick={()=>setShowModal(false)} className="flex-1 py-3 rounded-full bg-white/10 text-[13px]">Batal</button>
-              <button onClick={handleAddSite} className="flex-1 py-3 rounded-full bg-white text-black font-bold text-[13px]">Tambah Website</button>
+              <button onClick={handleAddSite} disabled={creating || !newSite.domain || !newSite.repo} className="flex-1 py-3 rounded-full bg-white text-black font-bold text-[13px] disabled:opacity-50">{creating ? 'Membuat...' : 'Buat Website'}</button>
             </div>
           </div>
         </div>
