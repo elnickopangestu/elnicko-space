@@ -94,6 +94,7 @@ export default function ElnickoSpace() {
           <div className="flex items-center gap-3">
             <input value={filter} onChange={e=>setFilter(e.target.value)} placeholder="Cari domain..." className="hidden md:block bg-white/5 border border-white/10 rounded-full px-4 py-2 text-[13px] w-56 outline-none focus:border-violet-500/50" />
             <button onClick={()=>setShowModal(true)} className="px-4 py-2 rounded-full bg-white text-black text-[13px] font-bold hover:bg-white/90 transition">+ New Website</button>
+            <button onClick={async()=>{await fetch('/api/auth/logout',{method:'POST'});window.location.href='/login'}} className="px-4 py-2 rounded-full border border-white/10 text-[13px] text-white/70 hover:bg-white/5 transition">Logout</button>
           </div>
         </div>
       </header>
