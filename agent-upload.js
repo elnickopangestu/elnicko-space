@@ -74,7 +74,12 @@ print(n, size)
 `;
 
 async function inspectZip(zip, job) {
-  const out = (await run('python3', ['-c', INSPECT_PY, zip], { job: null })).trim();
+  let out;
+  try {
+    out = (await run('python3', ['-c', INSPECT_PY, zip], { job: null })).trim();
+  } catch {
+    throw new Error('Zip ditolak: berisi path berbahaya (../ atau absolut) atau file rusak');
+  }
   const [n, size] = out.split(' ').map(Number);
   if (!n || Number.isNaN(size)) throw new Error('Isi zip tidak valid');
   if (n > MAX_FILES) throw new Error(`Terlalu banyak file (${n}). Pastikan node_modules dan folder build tidak ikut.`);
