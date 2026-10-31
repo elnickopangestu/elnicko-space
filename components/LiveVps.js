@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 
-async function call(path, method = 'GET') {
-  const r = await fetch(`/api/vps/proxy?path=${encodeURIComponent(path)}`, { method });
+async function call(path, method = 'GET', body) {
+  const r = await fetch(`/api/vps/proxy?path=${encodeURIComponent(path)}`, body === undefined ? { method } : { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
   if (r.status === 401) { window.location.href = '/login'; throw new Error('Sesi habis'); }
   const d = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(d.error || `Error ${r.status}`);

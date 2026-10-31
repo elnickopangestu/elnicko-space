@@ -5,6 +5,7 @@ const os = require('os');
 const path = require('path');
 const crypto = require('crypto');
 const dns = require('dns').promises;
+const { authEnv } = require('./agent-github');
 const { spawn } = require('child_process');
 
 const DATA_DIR = process.env.DATA_DIR || '/var/lib/elnicko';
@@ -243,7 +244,7 @@ async function startApp(site, job) {
 
 async function pullLatest(site, job) {
   const dir = dirOf(site.domain);
-  await run('git', ['-C', dir, 'fetch', '--depth', '1', 'origin', site.branch], { job });
+  await run('git', ['-C', dir, 'fetch', '--depth', '1', 'origin', site.branch], { job, env: authEnv(cleanEnv()) });
   await run('git', ['-C', dir, 'reset', '--hard', 'FETCH_HEAD'], { job });
 }
 
@@ -280,7 +281,7 @@ async function createSite(input) {
     const finish = (state) => { const r = load(); if (r[domain]) { r[domain].state = state; if (state === 'ready') r[domain].lastDeploy = Date.now(); save(r); } };
     try {
       fs.mkdirSync(WWW, { recursive: true });
-      await run('git', ['clone', '--depth', '1', '--branch', branch, repo, dirOf(domain)], { job });
+      await run('git', ['clone', '--depth', '1', '--branch', branch, repo, dirOf(domain)], { job, env: authEnv(cleanEnv()) });
       await build(site, job);
       await startApp(site, job);
       await writeNginx(site, job);
@@ -343,6 +344,7 @@ function getSite(domainRaw) {
 function deploySite(domainRaw) {
   const site = getSite(domainRaw);
   if (site.external) throw new HttpError(400, 'App eksternal dikelola di luar dashboard, tidak bisa di-deploy dari sini');
+  if (site.source === 'upload' && !site.repo) throw new HttpError(400, 'Website ini dari upload folder tanpa repo GitHub. Gunakan "Upload ulang" untuk memperbarui.');
   return startJob(site.domain, `Deploy ${site.domain}`, async (job) => {
     await pullLatest(site, job);
     await build(site, job);
@@ -421,4 +423,6 @@ function deleteSite(domainRaw) {
   });
 }
 
-module.exports = { startJob, run, append, cleanEnv, HttpError, listSites, createSite, importSite, deploySite, enableSsl, controlSite, siteLogs, deleteSite, getJob };
+const _i = { load, save, dirOf, pm2Name, procName, build, startApp, writeNginx, pickPort, normDomain, pm2Status, FRAMEWORKS, WWW, DATA_DIR };
+
+module.exports = { _i, startJob, run, append, cleanEnv, HttpError, listSites, createSite, importSite, deploySite, enableSsl, controlSite, siteLogs, deleteSite, getJob };

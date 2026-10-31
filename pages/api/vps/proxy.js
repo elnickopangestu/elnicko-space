@@ -12,6 +12,9 @@ const ALLOWED = [
   { method: 'GET', re: new RegExp(`^sites/${D}/logs$`) },
   { method: 'POST', re: new RegExp(`^sites/${D}/(deploy|ssl|delete|start|stop|restart)$`) },
   { method: 'GET', re: /^jobs\/[a-f0-9]{6,32}$/ },
+  { method: 'GET', re: /^github$/ },
+  { method: 'POST', re: /^uploads$/, body: true },
+  { method: 'POST', re: /^uploads\/[a-f0-9]{16}\/finish$/, body: true },
 ];
 
 export default async function handler(req, res) {

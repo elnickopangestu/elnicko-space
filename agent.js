@@ -5,6 +5,7 @@ const crypto = require('crypto');
 const { execFile } = require('child_process');
 const sites = require('./agent-sites');
 const appsMaint = require('./agent-apps');
+const uploads = require('./agent-upload');
 const { discover: netDiscover } = require('./agent-net');
 
 const PORT = process.env.AGENT_PORT || 4000;
@@ -103,6 +104,20 @@ function readJson(req) {
   });
 }
 
+function readRaw(req, max) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    let size = 0;
+    req.on('data', (c) => {
+      size += c.length;
+      if (size > max) { reject(new sites.HttpError(413, 'Body terlalu besar')); req.destroy(); return; }
+      chunks.push(c);
+    });
+    req.on('end', () => resolve(Buffer.concat(chunks)));
+    req.on('error', reject);
+  });
+}
+
 const server = http.createServer(async (req, res) => {
   if (!authorized(req.headers.authorization)) {
     return send(res, 401, { error: 'Unauthorized' });
@@ -152,6 +167,22 @@ const server = http.createServer(async (req, res) => {
 
       await run('pm2', [action === 'start' ? 'restart' : action, name]);
       return send(res, 200, { success: true, name, action, apps: await pm2List() });
+    }
+
+    // ---- GitHub & upload folder ----
+    if (req.method === 'GET' && parts.length === 1 && parts[0] === 'github') {
+      return send(res, 200, await uploads.githubStatus());
+    }
+    if (parts[0] === 'uploads') {
+      if (req.method === 'POST' && parts.length === 1) return send(res, 200, uploads.initUpload());
+      if (req.method === 'PUT' && parts.length === 3) {
+        const buf = await readRaw(req, 5 * 1024 * 1024);
+        return send(res, 200, uploads.saveChunk(parts[1], Number(parts[2]), buf));
+      }
+      if (req.method === 'POST' && parts.length === 3 && parts[2] === 'finish') {
+        const job = uploads.finishUpload(parts[1], await readJson(req));
+        return send(res, 202, { job: job.id });
+      }
     }
 
     // ---- Websites ----

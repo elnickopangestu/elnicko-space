@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useVps, useSites, VpsApps, gb, call } from '../components/LiveVps';
 import AppDetail from '../components/AppDetail';
 import AppViewer, { canEmbed } from '../components/AppViewer';
+import UploadForm from '../components/UploadForm';
 
 const FRAMEWORKS = [
   { value: 'nextjs', label: 'Next.js' },
@@ -31,6 +32,7 @@ export default function ElnickoSpace() {
   const [newSite, setNewSite] = useState({ domain: '', repo: '', branch: 'main', framework: 'nextjs', port: '' });
   const [selectedApp, setSelectedApp] = useState(null);
   const [viewer, setViewer] = useState(null);
+  const [updateSite, setUpdateSite] = useState(null);
   const [mode, setMode] = useState('github');
   const [imp, setImp] = useState({ domain: '', pm2: '', port: '', auth: true });
   const logRef = useRef(null);
@@ -179,7 +181,7 @@ export default function ElnickoSpace() {
           </div>
           <div className="flex items-center gap-3">
             <input value={filter} onChange={e=>setFilter(e.target.value)} placeholder="Cari domain..." className="hidden md:block bg-white/5 border border-white/10 rounded-full px-4 py-2 text-[13px] w-56 outline-none focus:border-violet-500/50" />
-            <button onClick={()=>setShowModal(true)} className="px-4 py-2 rounded-full bg-white text-black text-[13px] font-bold hover:bg-white/90 transition">+ New Website</button>
+            <button onClick={()=>{ setUpdateSite(null); setShowModal(true); }} className="px-4 py-2 rounded-full bg-white text-black text-[13px] font-bold hover:bg-white/90 transition">+ New Website</button>
             <button onClick={async()=>{await fetch('/api/auth/logout',{method:'POST'});window.location.href='/login'}} className="px-4 py-2 rounded-full border border-white/10 text-[13px] text-white/70 hover:bg-white/5 transition">Logout</button>
           </div>
         </div>
@@ -248,7 +250,7 @@ export default function ElnickoSpace() {
                     </div>
                     <span className="mono text-[11px] text-white/40 shrink-0 ml-2">{ago(site.lastDeploy)}</span>
                   </div>
-                  <p className="mono text-[11px] text-white/30 mt-3 truncate">{site.external ? `app dari VPS • pm2: ${site.pm2}` : `${site.repo.replace('https://github.com/','')} • ${site.branch}`}</p>
+                  <p className="mono text-[11px] text-white/30 mt-3 truncate">{site.external ? `app dari VPS • pm2: ${site.pm2}` : site.repo ? `${site.repo.replace('https://github.com/','')} • ${site.branch}` : 'upload folder'}</p>
                   <div className="flex flex-wrap gap-2 mt-4">
                     {!site.external && (
                       <button onClick={()=>handleDeploy(site)} disabled={working || site.state === 'failed'} className={`flex-1 py-2 rounded-full text-[12px] font-bold transition ${working ? 'bg-white/10' : 'bg-white text-black hover:bg-white/90'} disabled:opacity-50`}>
@@ -257,6 +259,7 @@ export default function ElnickoSpace() {
                     )}
                     {online && site.url && <button onClick={()=>openApp(site.domain, site.url)} className="px-3 py-2 rounded-full bg-violet-500/20 text-violet-200 hover:bg-violet-500/30 text-[12px] font-bold">Buka ↗</button>}
                     {!isStatic && <button disabled={working} onClick={()=>handleControl(site, online ? 'stop' : 'start')} className="px-3 py-2 rounded-full bg-white/5 hover:bg-white/10 text-[12px] disabled:opacity-50">{online ? 'Stop' : 'Start'}</button>}
+                    {site.source === 'upload' && <button disabled={working} onClick={()=>{ setUpdateSite(site); setMode('upload'); setShowModal(true); }} className="px-3 py-2 rounded-full bg-white/5 hover:bg-white/10 text-[12px] disabled:opacity-50">Upload ulang</button>}
                     {!site.ssl && site.state === 'ready' && <button disabled={working} onClick={()=>handleSsl(site)} className="px-3 py-2 rounded-full bg-white/5 hover:bg-white/10 text-[12px] disabled:opacity-50">SSL</button>}
                     <button onClick={()=>handleLogs(site)} className="px-3 py-2 rounded-full bg-white/5 hover:bg-white/10 text-[12px]">Logs</button>
                     <button disabled={working} onClick={()=>handleDelete(site)} className="px-3 py-2 rounded-full bg-red-500/10 text-red-300 hover:bg-red-500/20 text-[12px] disabled:opacity-50">{site.external ? 'Lepas' : 'Hapus'}</button>
@@ -288,11 +291,13 @@ export default function ElnickoSpace() {
           <div className="glass rounded-2xl w-full max-w-md p-6 glow max-h-full overflow-auto">
             <h3 className="font-bold text-lg mb-4">Add New Website</h3>
             <div className="flex gap-2 mb-4">
-              {[['github', 'Dari GitHub'], ['import', 'Import dari VPS']].map(([k, label]) => (
+              {[['github', 'Dari GitHub'], ['upload', 'Upload folder'], ['import', 'Import VPS']].map(([k, label]) => (
                 <button key={k} onClick={()=>setMode(k)} className={`flex-1 py-2 rounded-full text-[12px] font-bold ${mode === k ? 'bg-white text-black' : 'bg-white/10'}`}>{label}</button>
               ))}
             </div>
-            {mode === 'import' ? (
+            {mode === 'upload' ? (
+              <UploadForm key={updateSite?.domain || 'new'} updateSite={updateSite} onClose={() => { setShowModal(false); setUpdateSite(null); }} onJob={(id) => { setBusy(updateSite?.domain || null); setJobId(id); siteList.refresh(); }} notify={notify} />
+            ) : mode === 'import' ? (
               <>
                 <div className="space-y-4">
                   <div><label className="mono text-[11px] text-white/50">Domain</label><input value={imp.domain} onChange={e=>setImp({...imp, domain: e.target.value})} placeholder="bot.namamu.com" className={inputCls} /></div>
@@ -318,7 +323,7 @@ export default function ElnickoSpace() {
             <>
             <div className="space-y-4">
               <div><label className="mono text-[11px] text-white/50">Domain</label><input value={newSite.domain} onChange={e=>setNewSite({...newSite, domain: e.target.value})} placeholder="baru.com" className={inputCls} /></div>
-              <div><label className="mono text-[11px] text-white/50">GitHub Repo (publik)</label><input value={newSite.repo} onChange={e=>setNewSite({...newSite, repo: e.target.value})} placeholder="https://github.com/user/repo" className={inputCls} /></div>
+              <div><label className="mono text-[11px] text-white/50">GitHub Repo (publik, atau privat bila token GitHub terpasang)</label><input value={newSite.repo} onChange={e=>setNewSite({...newSite, repo: e.target.value})} placeholder="https://github.com/user/repo" className={inputCls} /></div>
               <div className="grid grid-cols-2 gap-3">
                 <div><label className="mono text-[11px] text-white/50">Branch</label><input value={newSite.branch} onChange={e=>setNewSite({...newSite, branch: e.target.value})} className={inputCls} /></div>
                 <div><label className="mono text-[11px] text-white/50">Port (opsional)</label><input type="number" value={newSite.port} onChange={e=>setNewSite({...newSite, port: e.target.value})} placeholder="otomatis" disabled={newSite.framework === 'static'} className={inputCls + ' disabled:opacity-40'} /></div>
