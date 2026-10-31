@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useVps, VpsApps, gb } from '../components/LiveVps';
 
 const initialSites = [
   { id: 1, domain: 'tokoku.id', framework: 'Next.js', port: 3000, status: 'running', ssl: true, lastDeploy: '2 jam lalu', vercel: true, cpu: 12 },
@@ -10,6 +11,7 @@ const initialSites = [
 
 export default function ElnickoSpace() {
   const [sites, setSites] = useState(initialSites);
+  const vps = useVps();
   const [logs, setLogs] = useState(['[System] Elnicko Space Agent connected...', '[System] VPS Bandung - Online', '[System] Ready for deploy commands']);
   const [showModal, setShowModal] = useState(false);
   const [deployingId, setDeployingId] = useState(null);
@@ -88,7 +90,7 @@ export default function ElnickoSpace() {
             </div>
             <div className="hidden md:flex items-center gap-2 ml-6 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20">
               <span className="w-2 h-2 rounded-full bg-emerald-400 pulse-dot" />
-              <span className="mono text-[11px] text-emerald-300">ONLINE • 2 vCPU • 4GB</span>
+              <span className="mono text-[11px] text-emerald-300">{vps.status ? `ONLINE • ${vps.status.cpus} vCPU • ${gb(vps.status.memory.total)}` : vps.error ? 'OFFLINE' : 'CONNECTING'}</span>
             </div>
           </div>
           <div className="flex items-center gap-3">
@@ -103,9 +105,9 @@ export default function ElnickoSpace() {
         <div className="col-span-12 grid grid-cols-2 md:grid-cols-4 gap-4">
           {[
             { label: 'Total Websites', value: sites.length, sub: `${sites.filter(s=>s.status==='running').length} running` },
-            { label: 'CPU Usage', value: '34%', sub: '2.1 GHz / 4 cores', bar: 34 },
-            { label: 'RAM Usage', value: '2.1 GB', sub: 'dari 4 GB', bar: 52 },
-            { label: 'Bandwidth Today', value: '12.4 GB', sub: '↑ 3.2 GB' },
+            { label: 'CPU Usage', value: vps.status ? `${vps.status.cpuPercent}%` : '—', sub: vps.status ? `${vps.status.cpus} vCPU • load ${vps.status.load[0].toFixed(2)}` : 'menunggu VPS', bar: vps.status?.cpuPercent },
+            { label: 'RAM Usage', value: vps.status ? gb(vps.status.memory.used) : '—', sub: vps.status ? `dari ${gb(vps.status.memory.total)}` : 'menunggu VPS', bar: vps.status ? Math.round(vps.status.memory.used / vps.status.memory.total * 100) : undefined },
+            { label: 'Disk Usage', value: vps.status ? gb(vps.status.disk.used) : '—', sub: vps.status ? `dari ${gb(vps.status.disk.total)}` : 'menunggu VPS', bar: vps.status ? Math.round(vps.status.disk.used / vps.status.disk.total * 100) : undefined },
           ].map((s,i)=>(
             <div key={i} className="glass rounded-2xl p-4">
               <p className="text-[11px] text-white/40 tracking-widest">{s.label}</p>
@@ -115,6 +117,8 @@ export default function ElnickoSpace() {
             </div>
           ))}
         </div>
+
+        <VpsApps apps={vps.apps} error={vps.error} mock={vps.mock} setApps={vps.setApps} onLog={addLog} />
 
         <div className="col-span-12 lg:col-span-8">
           <div className="flex items-center justify-between mb-4">
