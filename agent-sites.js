@@ -142,6 +142,26 @@ async function pickPort(reg, wanted) {
 }
 
 // ---------- nginx ----------
+const HTPASSWD_DIR = '/etc/nginx/htpasswd';
+const htpasswdPath = (domain) => path.join(HTPASSWD_DIR, domain);
+
+// Format {SSHA} (SHA1 + salt) didukung nginx tanpa tool tambahan
+function ssha(password) {
+  const salt = crypto.randomBytes(8);
+  const digest = crypto.createHash('sha1').update(password).update(salt).digest();
+  return '{SSHA}' + Buffer.concat([digest, salt]).toString('base64');
+}
+
+function writeHtpasswd(domain, user, password) {
+  fs.mkdirSync(HTPASSWD_DIR, { recursive: true, mode: 0o750 });
+  fs.writeFileSync(htpasswdPath(domain), `${user}:${ssha(password)}\n`, { mode: 0o640 });
+  // Worker nginx (www-data) harus bisa membaca file ini
+  try {
+    const gid = Number((fs.readFileSync('/etc/group', 'utf8').split('\n').find(l => l.startsWith('www-data:')) || '').split(':')[2]);
+    if (gid) fs.chownSync(htpasswdPath(domain), 0, gid);
+  } catch { /* abaikan */ }
+}
+
 function nginxConf(site) {
   const header = `# dikelola oleh Elnicko Space - jangan edit manual\n`;
   if (site.framework === 'static') {
@@ -159,7 +179,9 @@ function nginxConf(site) {
   listen 80;
   listen [::]:80;
   server_name ${site.domain};
-  client_max_body_size 25m;
+  client_max_body_size 25m;${site.auth ? `
+  auth_basic "Elnicko Space";
+  auth_basic_user_file ${htpasswdPath(site.domain)};` : ''}
   location / {
     proxy_pass http://127.0.0.1:${site.port};
     proxy_http_version 1.1;
@@ -233,6 +255,7 @@ async function listSites() {
     ...s,
     process: s.framework === 'static' ? null : (pm2[procName(s)] || null),
     ssl: fs.existsSync(`/etc/letsencrypt/live/${s.domain}/fullchain.pem`),
+    url: `${fs.existsSync(`/etc/letsencrypt/live/${s.domain}/fullchain.pem`) ? 'https' : 'http'}://${s.domain}`,
   })).sort((a, b) => a.createdAt - b.createdAt);
 }
 
@@ -285,17 +308,26 @@ async function importSite(input) {
 
   const reg = load();
   if (reg[domain] || fs.existsSync(dirOf(domain))) throw new HttpError(409, 'Domain sudah terdaftar');
-  const site = { domain, repo: '', branch: '', framework: 'external', port, pm2, external: true, state: 'creating', createdAt: Date.now(), lastDeploy: null };
+  const auth = input.auth !== false; // default: dilindungi login nginx
+  const site = { domain, repo: '', branch: '', framework: 'external', port, pm2, external: true, auth, state: 'creating', createdAt: Date.now(), lastDeploy: null };
   reg[domain] = site;
   save(reg);
 
   return startJob(domain, `Import ${domain}`, async (job) => {
     try {
+      let password = null;
+      if (auth) {
+        password = crypto.randomBytes(12).toString('base64url');
+        writeHtpasswd(domain, 'admin', password);
+      }
       await writeNginx(site, job);
       const r = load(); if (r[domain]) { r[domain].state = 'ready'; save(r); }
       append(job, `\n✅ ${domain} -> 127.0.0.1:${port} (${pm2}). Arahkan DNS A record ke server ini, lalu klik SSL.\n`);
+      if (password) append(job, `🔐 Login nginx untuk ${domain}: user "admin", password "${password}" (simpan sekarang, tidak ditampilkan lagi)\n`);
+      else append(job, `⚠️ ${domain} dibuka TANPA login nginx. Pastikan aplikasinya punya login sendiri.\n`);
     } catch (e) {
       const r = load(); delete r[domain]; save(r);
+      fs.rmSync(htpasswdPath(domain), { force: true });
       throw e;
     }
   });
@@ -374,6 +406,7 @@ function deleteSite(domainRaw) {
     }
     fs.rmSync(path.join(NGINX_ENABLED, `${site.domain}.conf`), { force: true });
     fs.rmSync(path.join(NGINX_AVAIL, `${site.domain}.conf`), { force: true });
+    fs.rmSync(htpasswdPath(site.domain), { force: true });
     await run('nginx', ['-t'], { job, allowFail: true });
     await run('systemctl', ['reload', 'nginx'], { job, allowFail: true });
     if (fs.existsSync(`/etc/letsencrypt/live/${site.domain}`)) {

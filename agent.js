@@ -5,6 +5,7 @@ const crypto = require('crypto');
 const { execFile } = require('child_process');
 const sites = require('./agent-sites');
 const appsMaint = require('./agent-apps');
+const { discover: netDiscover } = require('./agent-net');
 
 const PORT = process.env.AGENT_PORT || 4000;
 const TOKEN = process.env.VPS_TOKEN;
@@ -44,8 +45,11 @@ async function pm2List() {
   const out = await run('pm2', ['jlist']);
   const start = out.indexOf('[');
   const list = JSON.parse(out.slice(start));
+  const net = await netDiscover(list.map(p => ({ name: p.name, pid: p.pid })));
   return list.map(p => ({
     name: p.name,
+    urls: net[p.name]?.urls || [],
+    ports: net[p.name]?.ports || [],
     status: p.pm2_env?.status,
     cpu: p.monit?.cpu ?? 0,
     memory: p.monit?.memory ?? 0,

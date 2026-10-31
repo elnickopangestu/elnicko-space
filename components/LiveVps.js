@@ -48,7 +48,7 @@ export function useVps(intervalMs = 10000) {
   return { status, apps, error, mock, refresh, setApps };
 }
 
-export function VpsApps({ apps, error, mock, setApps, onLog, onSelect }) {
+export function VpsApps({ apps, error, mock, setApps, onLog, onSelect, onOpen }) {
   const [busy, setBusy] = useState(null);
 
   const act = async (name, action) => {
@@ -98,6 +98,9 @@ export function VpsApps({ apps, error, mock, setApps, onLog, onSelect }) {
                   <td className="pr-4 mono">{a.uptime ? fmtUptime(a.uptime) : '-'}</td>
                   <td className="pr-4 mono">{a.restarts}</td>
                   <td className="text-right whitespace-nowrap" onClick={e => e.stopPropagation()}>
+                    {a.urls?.length > 0 && a.status === 'online' && (
+                      <button onClick={() => onOpen?.(a.name, a.urls[0].url)} title={a.urls[0].url} className="px-3 py-1 rounded-full bg-violet-500/20 text-violet-200 hover:bg-violet-500/30 text-[12px] font-bold mr-2">Buka ↗</button>
+                    )}
                     {a.protected ? (
                       <span className="mono text-[11px] text-white/30">dilindungi</span>
                     ) : (

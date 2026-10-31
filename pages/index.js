@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useVps, useSites, VpsApps, gb, call } from '../components/LiveVps';
 import AppDetail from '../components/AppDetail';
+import AppViewer, { canEmbed } from '../components/AppViewer';
 
 const FRAMEWORKS = [
   { value: 'nextjs', label: 'Next.js' },
@@ -29,8 +30,9 @@ export default function ElnickoSpace() {
   const [creating, setCreating] = useState(false);
   const [newSite, setNewSite] = useState({ domain: '', repo: '', branch: 'main', framework: 'nextjs', port: '' });
   const [selectedApp, setSelectedApp] = useState(null);
+  const [viewer, setViewer] = useState(null);
   const [mode, setMode] = useState('github');
-  const [imp, setImp] = useState({ domain: '', pm2: '', port: '' });
+  const [imp, setImp] = useState({ domain: '', pm2: '', port: '', auth: true });
   const logRef = useRef(null);
 
   const addLog = (msg) => setLogs(prev => [...prev.slice(-300), `[${new Date().toLocaleTimeString()}] ${msg}`]);
@@ -75,6 +77,13 @@ export default function ElnickoSpace() {
     } catch (e) { addLog(`❌ ${e.message}`); setBusy(null); }
   };
 
+  // Tampilkan di dalam dashboard bila bisa (https). Alamat http diblokir browser di dalam halaman https, jadi dibuka di tab baru.
+  const openApp = (name, url) => {
+    if (canEmbed(url)) { setViewer({ name, url }); return; }
+    window.open(url, '_blank', 'noopener,noreferrer');
+    addLog(`↗ ${name} dibuka di tab baru (http tidak bisa ditampilkan di dalam dashboard https; pasang domain + SSL agar tampil di sini)`);
+  };
+
   const handleDeploy = (s) => startJobCall(s.domain, `sites/${s.domain}/deploy`, 'deploy');
   const handleSsl = (s) => startJobCall(s.domain, `sites/${s.domain}/ssl`, 'ssl');
   const handleDelete = (s) => {
@@ -95,7 +104,7 @@ export default function ElnickoSpace() {
       setShowModal(false);
       setBusy(imp.domain.trim().toLowerCase());
       addLog(`> import ${imp.domain}`);
-      setImp({ domain: '', pm2: '', port: '' });
+      setImp({ domain: '', pm2: '', port: '', auth: true });
       setJobId(d.job);
       siteList.refresh();
     } catch (e) { notify(`❌ ${e.message}`); }
@@ -193,10 +202,12 @@ export default function ElnickoSpace() {
           ))}
         </div>
 
-        <VpsApps apps={vps.apps} error={vps.error} mock={vps.mock} setApps={vps.setApps} onLog={addLog} onSelect={setSelectedApp} />
+        <VpsApps apps={vps.apps} error={vps.error} mock={vps.mock} setApps={vps.setApps} onLog={addLog} onSelect={setSelectedApp} onOpen={openApp} />
+        {viewer && <AppViewer name={viewer.name} url={viewer.url} onClose={() => setViewer(null)} />}
         {selectedApp && (
           <AppDetail
             name={selectedApp}
+            onOpen={openApp}
             onClose={() => setSelectedApp(null)}
             onLog={addLog}
             onJob={(id) => { setBusy(`app:${selectedApp}`); setJobId(id); document.getElementById('logs')?.scrollIntoView({ behavior: 'smooth' }); }}
@@ -244,6 +255,7 @@ export default function ElnickoSpace() {
                         {working ? 'Bekerja...' : 'Deploy'}
                       </button>
                     )}
+                    {online && site.url && <button onClick={()=>openApp(site.domain, site.url)} className="px-3 py-2 rounded-full bg-violet-500/20 text-violet-200 hover:bg-violet-500/30 text-[12px] font-bold">Buka ↗</button>}
                     {!isStatic && <button disabled={working} onClick={()=>handleControl(site, online ? 'stop' : 'start')} className="px-3 py-2 rounded-full bg-white/5 hover:bg-white/10 text-[12px] disabled:opacity-50">{online ? 'Stop' : 'Start'}</button>}
                     {!site.ssl && site.state === 'ready' && <button disabled={working} onClick={()=>handleSsl(site)} className="px-3 py-2 rounded-full bg-white/5 hover:bg-white/10 text-[12px] disabled:opacity-50">SSL</button>}
                     <button onClick={()=>handleLogs(site)} className="px-3 py-2 rounded-full bg-white/5 hover:bg-white/10 text-[12px]">Logs</button>
@@ -291,6 +303,10 @@ export default function ElnickoSpace() {
                     </select>
                   </div>
                   <div><label className="mono text-[11px] text-white/50">Port aplikasi</label><input type="number" value={imp.port} onChange={e=>setImp({...imp, port: e.target.value})} placeholder="mis. 3000" className={inputCls} /></div>
+                  <label className="flex items-start gap-2 text-[12px] text-white/70 cursor-pointer">
+                    <input type="checkbox" checked={imp.auth} onChange={e=>setImp({...imp, auth: e.target.checked})} className="mt-1" />
+                    <span>Lindungi dengan login nginx (disarankan). Password dibuat otomatis dan tampil sekali di Live Logs. Matikan hanya bila aplikasinya punya login sendiri.</span>
+                  </label>
                   <p className="text-[11px] text-white/40">Aplikasi tidak diubah atau di-restart. Dashboard hanya membuat konfigurasi nginx untuk domain ini. Arahkan DNS A record ke IP VPS, lalu klik SSL.</p>
                 </div>
                 <div className="flex gap-3 mt-6">

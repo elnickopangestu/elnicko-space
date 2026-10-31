@@ -4,6 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
 const { startJob, run, append, cleanEnv, HttpError } = require('./agent-sites');
+const { discover: netDiscover } = require('./agent-net');
 
 const NAME_RE = /^[A-Za-z0-9._-]{1,64}$/;
 const PROTECTED = new Set((process.env.PROTECTED_APPS || 'elnicko-agent,elnicko-tunnel').split(',').map(s => s.trim()).filter(Boolean));
@@ -79,6 +80,7 @@ async function appInfo(name) {
     memory: p.monit?.memory ?? 0,
     protected: PROTECTED.has(name),
     git: await gitInfo(cwd, true),
+    ...(await netDiscover([{ name, pid: p.pid }]))[name],
   };
 }
 

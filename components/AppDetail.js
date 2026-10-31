@@ -3,7 +3,7 @@ import { call, mb, fmtUptime } from './LiveVps';
 
 const btn = 'px-4 py-2 rounded-full text-[12px] font-bold disabled:opacity-40 transition';
 
-export default function AppDetail({ name, onClose, onLog, onJob, onChanged }) {
+export default function AppDetail({ name, onClose, onLog, onJob, onChanged, onOpen }) {
   const [info, setInfo] = useState(null);
   const [err, setErr] = useState('');
   const [logs, setLogs] = useState(null);
@@ -89,6 +89,18 @@ export default function AppDetail({ name, onClose, onLog, onJob, onChanged }) {
                   <p className="mono text-[13px] mt-1">{v}</p>
                 </div>
               ))}
+            </div>
+
+            <div className="bg-white/5 rounded-xl p-4 mb-4 text-[12px]">
+              <p className="text-[10px] text-white/40 tracking-widest mb-2">AKSES</p>
+              {info.urls?.length ? info.urls.map(u => (
+                <div key={u.url} className="flex items-center justify-between gap-2 py-1">
+                  <span className="mono text-white/80 truncate">{u.url}{u.auth && <span className="ml-2 text-emerald-300">🔐 login</span>}{!u.secure && <span className="ml-2 text-amber-300">http</span>}</span>
+                  <button onClick={() => { onOpen?.(name, u.url); onClose(); }} className="px-3 py-1 rounded-full bg-violet-500/20 text-violet-200 hover:bg-violet-500/30 font-bold shrink-0">Buka ↗</button>
+                </div>
+              )) : (
+                <p className="text-white/40">{info.ports?.length ? `Aplikasi listen di port ${info.ports.join(', ')} tapi belum punya alamat publik. Pasang domain lewat + New Website → Import dari VPS.` : 'Proses ini tidak membuka port web.'}</p>
+              )}
             </div>
 
             {g ? (
