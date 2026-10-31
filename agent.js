@@ -1,28 +1,46 @@
-
 const http = require('http');
-const { exec } = require('child_process');
+const crypto = require('crypto');
 
 const PORT = process.env.AGENT_PORT || 4000;
-const TOKEN = process.env.VPS_TOKEN || 'dev-token';
+const TOKEN = process.env.VPS_TOKEN;
+
+if (!TOKEN || TOKEN.length < 16) {
+  console.error('[AGENT] VPS_TOKEN wajib diisi (minimal 16 karakter)');
+  process.exit(1);
+}
+
+const DOMAIN_RE = /^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/i;
+
+function authorized(header = '') {
+  const a = Buffer.from(header);
+  const b = Buffer.from(`Bearer ${TOKEN}`);
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+
+function send(res, status, body) {
+  res.writeHead(status, { 'Content-Type': 'application/json' });
+  res.end(JSON.stringify(body));
+}
 
 const server = http.createServer((req, res) => {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  const auth = req.headers.authorization;
-  if (auth !== `Bearer ${TOKEN}`) {
-    res.writeHead(401);
-    return res.end(JSON.stringify({ error: 'Unauthorized' }));
+  if (!authorized(req.headers.authorization)) {
+    return send(res, 401, { error: 'Unauthorized' });
   }
 
   const url = new URL(req.url, `http://localhost:${PORT}`);
-  const domain = url.pathname.split('/').pop();
+  const domain = decodeURIComponent(url.pathname.split('/').pop());
+
+  if (!DOMAIN_RE.test(domain)) {
+    return send(res, 400, { error: 'Invalid domain' });
+  }
 
   console.log(`[AGENT] ${req.method} ${url.pathname}`);
 
-  // Simulate deploy
-  exec(`echo "Deploying ${domain}..."`, (err, stdout) => {
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ success: true, domain, output: stdout }));
-  });
+  // Simulate deploy (no shell execution)
+  send(res, 200, { success: true, domain, output: `Deploying ${domain}...` });
 });
 
-server.listen(PORT, () => console.log(`[ELNICKO SPACE AGENT] Running on :${PORT}`));
+// Hanya listen di localhost; akses publik lewat cloudflared tunnel
+server.listen(PORT, '127.0.0.1', () =>
+  console.log(`[ELNICKO SPACE AGENT] Running on 127.0.0.1:${PORT}`)
+);
